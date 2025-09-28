@@ -1,5 +1,7 @@
-dataloader/__pycache__/
-env/__pycache__/
-env/utils/__pycache__/
-policies/__pycache__/
-rl_algorithms/__pycache__/
+.venv/
+__pycache__/
+*.pyc
+*.npz
+logs*/
+tmp/
+.DS_Store
