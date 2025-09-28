@@ -16,10 +16,6 @@
   <!--- Run Rviz-->
   <include file="$(find lio_sam)/launch/include/module_rviz.launch" />
 
-  <!-- Use simulated time when playing bag/sequence #TODO Check to see if this does anything -->
-  <param name="use_sim_time" value="true"/>
-
-
   <!-- Rosbridge server (WebSocket on 9090 by default) -->
   <node pkg="rosbridge_server" type="rosbridge_websocket.py" name="rosbridge_websocket" output="screen">
     <param name="port" value="9090"/>

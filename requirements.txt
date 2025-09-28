@@ -11,3 +11,4 @@ scipy
 plotly
 SciencePlots
 pycryptodomex
+websocket-client

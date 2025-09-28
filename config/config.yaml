@@ -1,10 +1,8 @@
 seed: 0
 
 roslaunch:
-  # If you want to call "roslaunch <pkg> <file>", set package and file.
-  # Otherwise the env will call: roslaunch scripts/launch_sclsam.launch
   package: null
-  file: "scripts/launch_sclsam.launch"
+  file: "/rl_vo/scripts/launch_sclsam.launch"
 
 rosbridge:
   url: "ws://localhost:9090"
@@ -14,7 +12,7 @@ topics:
   odom: "/lio_sam/mapping/odometry"
 
 file_player:
-  rate_hz: 10
+  rate_hz: 1
   start_percent_min: 0
   start_percent_max: 15
 

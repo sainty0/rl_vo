@@ -1,7 +1,0 @@
-ipython
-numpy
-PyYAML
-pycryptodomex
-gnupg
-rospkg
-opencv-python

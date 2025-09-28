@@ -120,7 +120,7 @@ class RLBatchedEnv(VecEnv):
 
         # Rosbridge client (mock allowed for unit tests)
         self._mock_rb = bool(mock_rosbridge or (os.environ.get("DRY_RUN", "0") == "1"))
-        self.rb = MockRosbridge() if self._mock_rb else RosbridgeClient(self.rosbridge_url)
+        self._rb = MockRosbridge() if self._mock_rb else RosbridgeClient(self.rosbridge_url, lazy=True)
 
         # Orchestrator
         self._orch = EpisodeOrchestrator(
@@ -171,7 +171,13 @@ class RLBatchedEnv(VecEnv):
         # Episode-constant action: apply once and run terminal window
         a = float(np.clip(actions.reshape(-1)[0], 0.0, 1.0))
         leaf = action_to_leaf(a)
-        self._publish_leaf(leaf)
+        # self._publish_leaf(leaf)
+
+        def _publish_leaf_now():
+            try:
+                self._rb.publish_float(self.leaf_topic, float(leaf))
+            except Exception as e:
+                print(f"[WARN] rosbridge publish failed: {e}")
 
         # Run the window; steps = round(rate_hz * (warmup_s + score_s))
         result = self._orch.run_window(
@@ -179,6 +185,7 @@ class RLBatchedEnv(VecEnv):
             start_percent=float(self._current_start_percent),
             warmup_s=self.warmup_s,
             score_s=self.score_s,
+            before_play_fn=None if self._mock_rb else _publish_leaf_now,
         )
 
         est_path = result["est_tum"]
@@ -238,11 +245,11 @@ class RLBatchedEnv(VecEnv):
     def _resolve_gt_path(self, seq: str) -> str:
         """
         Assumption: Ground truth TUM file is located at:
-            <seq_root>/<seq>/gt.tum
+            <seq_root>/<seq>/<seq>_gt.tum
         Adjust this as needed if your GT lives elsewhere.
         In DRY_RUN, if missing, create a synthetic GT to match the est length.
         """
-        path = os.path.join(self.seq_root, seq, "gt.tum")
+        path = os.path.join(self.seq_root, seq, f"{seq}_gt.tum")
         if os.path.exists(path):
             return path
 
@@ -269,7 +276,7 @@ class RLBatchedEnv(VecEnv):
     def _roslaunch_cmd_from_cfg(cfg: Dict[str, Any]) -> List[str]:
         # By default, use our provided launch file; user may customize
         launch_pkg = cfg.get("roslaunch", {}).get("package", None)
-        launch_file = cfg.get("roslaunch", {}).get("file", "scripts/launch_sclsam.launch")
+        launch_file = cfg.get("roslaunch", {}).get("file", "/rl_vo/scripts/launch_sclsam.launch")
         if launch_pkg:
             return ["roslaunch", launch_pkg, launch_file]
         # Absolute or relative .launch path (roslaunch supports relative from CWD)
