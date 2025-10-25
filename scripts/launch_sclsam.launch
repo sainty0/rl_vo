@@ -20,14 +20,16 @@
 <!--   <include file="$(find lio_sam)/launch/include/module_rviz.launch" /> -->
 
   <!-- Rosbridge server (WebSocket on 9090 by default) -->
-  <node pkg="rosbridge_server" type="rosbridge_websocket.py" name="rosbridge_websocket" output="screen">
+  <node pkg="rosbridge_server" type="rosbridge_websocket.py" name="rosbridge_websocket"
+        output="screen" respawn="true" respawn_delay="2.0" required="false">
     <param name="port" value="$(arg rosbridge_port)"/>
     <param name="unregister_timeout" value="10.0"/>
   </node>
 
   <!-- Metrics Exporter (only if enabled) -->
   <group if="$(arg enable_metrics_exporter)">
-    <node pkg="metric_pkg" type="metrics_exporter.py" name="rl_metrics_exporter" output="screen">
+    <node pkg="metric_pkg" type="metrics_exporter.py" name="rl_metrics_exporter"
+          output="screen" respawn="true" respawn_delay="2.0" required="false">
       <param name="out_file" value="$(arg metrics_out_file)"/>
       <param name="dropout_thresh" value="0.3"/>
       <param name="scan_topic"   value="/lio_sam/deskew/cloud_deskewed"/>

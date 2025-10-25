@@ -61,6 +61,7 @@ class EpisodeOrchestrator:
         self.odom_topic = odom_topic
         self.stream_to_stdout = stream_to_stdout
         self.tail_lines_on_fail = tail_lines_on_fail
+        self._ros_down = False
 
         os.makedirs(self.run_root, exist_ok=True)
 
@@ -177,6 +178,7 @@ class EpisodeOrchestrator:
         try:
             self._rb.publish_float(leaf_topic, float(leaf))
         except Exception as e:
+            self._ros_down = True
             self._logger.warning("[set_leaf] publish failed: %s", e)
 
     def tick(self, step_len_s: float):
@@ -231,14 +233,25 @@ class EpisodeOrchestrator:
             self._logger.warning("[metrics] read failed (%s): %s", self._metrics_out, e)
             return {}
 
+    def is_ros_ok(self) -> bool:
+        if self._dry_run:
+            return True
+        return (self._ros_proc is not None) and (self._ros_proc.poll() is None)
+
+    def comms_alive(self) -> bool:
+        return (not self._ros_down) and self.is_ros_ok()
+
     def is_player_alive(self) -> bool:
         """True if the dataset player is still running (or DRY_RUN)."""
         if self._dry_run:
-            # Simulate a long player run
             return True
+        if not self.is_ros_ok():
+            return False
         if self._player_proc is None:
             return False
-        return self._player_proc.poll() is None
+        if self._player_proc.poll() is not None:
+            return False
+        return True
 
     def end_episode(self):
         """Teardown all children."""
@@ -252,7 +265,6 @@ class EpisodeOrchestrator:
     # ------------------------------
     def probe(self, seq_name: str, start_percent: float, duration_s: float, safe_leaf: float,
               topics: Dict[str, str], timeout_s: Optional[float] = None) -> Dict[str, float]:
-        # ... (UNCHANGED FROM YOUR VERSION EXCEPT using self._metrics_out) ...
         if timeout_s is None:
             timeout_s = duration_s + 5.0
 
