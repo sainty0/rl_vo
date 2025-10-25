@@ -1,6 +1,5 @@
 <launch>
   <arg name="project" default="rl_launcher"/>
-  <!-- NEW: enable/disable exporter & set output file -->
   <arg name="enable_metrics_exporter" default="true"/>
   <arg name="metrics_out_file" default="/tmp/rlvo/probe.json"/>
 
@@ -17,7 +16,7 @@
   <include file="$(find lio_sam)/launch/include/module_navsat.launch" />
 
   <!--- Run Rviz-->
-  <include file="$(find lio_sam)/launch/include/module_rviz.launch" />
+<!--   <include file="$(find lio_sam)/launch/include/module_rviz.launch" /> -->
 
   <!-- Rosbridge server (WebSocket on 9090 by default) -->
   <node pkg="rosbridge_server" type="rosbridge_websocket.py" name="rosbridge_websocket" output="screen">

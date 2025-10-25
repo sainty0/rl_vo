@@ -1002,3 +1002,265 @@
 [2025-10-19 14:19:00,835][EpisodeOrchestrator][INFO] - [run] DRY_RUN=1 seq=KAIST01 start=12.585 warmup=2.00 score=18.00 steps=20000
 [2025-10-19 14:19:00,901][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/dryrun-1fc80119/orchestrator.log
 [2025-10-19 14:19:00,901][EpisodeOrchestrator][INFO] - [run] DRY_RUN=1 seq=KAIST01 start=1.478 warmup=2.00 score=18.00 steps=20000
+[2025-10-25 05:16:30,665][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:16:32,644][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 6.309
+[2025-10-25 05:16:38,035][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-7aff6d15/orchestrator.log
+[2025-10-25 05:16:38,035][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-7aff6d15 seq=KAIST01 start=6.309 warmup=0.20 score=0.50 steps=20000 timeout_s=10.70
+[2025-10-25 05:16:38,036][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:16:38,037][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:16:38,037][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:16:38,038][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:16:38,038][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:16:38,038][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:16:38,050][EpisodeOrchestrator][INFO] - [run] roslaunch pid=569
+[2025-10-25 05:16:38,051][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:16:38,061][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=571 -> /tmp/est.tum
+[2025-10-25 05:16:38,062][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:16:40,076][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:16:40,077][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:16:40,136][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:16:40,140][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 6.309
+[2025-10-25 05:16:40,154][EpisodeOrchestrator][INFO] - [run] file_player pid=751
+[2025-10-25 05:16:44,637][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:16:46,368][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 7.289
+[2025-10-25 05:16:51,057][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-9e734e3f/orchestrator.log
+[2025-10-25 05:16:51,057][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-9e734e3f seq=KAIST01 start=7.289 warmup=0.20 score=0.50 steps=20000 timeout_s=10.70
+[2025-10-25 05:16:51,057][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:16:51,058][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:16:51,058][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:16:51,058][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:16:51,058][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:16:51,058][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:16:51,070][EpisodeOrchestrator][INFO] - [run] roslaunch pid=1036
+[2025-10-25 05:16:51,075][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:16:51,086][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=1038 -> /tmp/est.tum
+[2025-10-25 05:16:51,087][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:16:52,597][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:16:52,597][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:16:52,649][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:16:52,650][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 7.289
+[2025-10-25 05:16:52,675][EpisodeOrchestrator][INFO] - [run] file_player pid=1191
+[2025-10-25 05:16:57,157][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:16:58,898][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 5.371
+[2025-10-25 05:17:03,711][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-c6f965d9/orchestrator.log
+[2025-10-25 05:17:03,711][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-c6f965d9 seq=KAIST01 start=5.371 warmup=0.20 score=0.50 steps=20000 timeout_s=10.70
+[2025-10-25 05:17:03,712][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:17:03,712][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:17:03,713][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:17:03,713][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:03,713][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:03,714][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:17:03,727][EpisodeOrchestrator][INFO] - [run] roslaunch pid=1472
+[2025-10-25 05:17:03,731][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:17:03,743][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=1474 -> /tmp/est.tum
+[2025-10-25 05:17:03,744][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:17:05,253][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:17:05,254][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:17:05,254][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:17:05,255][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 5.371
+[2025-10-25 05:17:05,268][EpisodeOrchestrator][INFO] - [run] file_player pid=1627
+[2025-10-25 05:17:09,716][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:17:11,426][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 4.228
+[2025-10-25 05:17:16,291][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-b47523ea/orchestrator.log
+[2025-10-25 05:17:16,292][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-b47523ea seq=KAIST01 start=4.228 warmup=0.20 score=0.50 steps=20000 timeout_s=10.70
+[2025-10-25 05:17:16,292][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:17:16,293][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:17:16,293][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:17:16,293][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:16,293][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:16,294][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:17:16,306][EpisodeOrchestrator][INFO] - [run] roslaunch pid=2131
+[2025-10-25 05:17:16,310][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:17:16,322][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=2133 -> /tmp/est.tum
+[2025-10-25 05:17:16,322][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:17:17,833][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:17:17,833][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:17:17,834][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:17:17,835][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 4.228
+[2025-10-25 05:17:17,849][EpisodeOrchestrator][INFO] - [run] file_player pid=2285
+[2025-10-25 05:17:22,341][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:17:24,318][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 3.758
+[2025-10-25 05:17:28,848][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-105a4dc9/orchestrator.log
+[2025-10-25 05:17:28,848][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-105a4dc9 seq=KAIST01 start=3.758 warmup=0.20 score=0.50 steps=20000 timeout_s=10.70
+[2025-10-25 05:17:28,849][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:17:28,849][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:17:28,849][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:17:28,849][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:28,850][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:28,850][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:17:28,864][EpisodeOrchestrator][INFO] - [run] roslaunch pid=2635
+[2025-10-25 05:17:28,868][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:17:28,879][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=2637 -> /tmp/est.tum
+[2025-10-25 05:17:28,880][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:17:30,388][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:17:30,389][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:17:30,389][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:17:30,390][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 3.758
+[2025-10-25 05:17:30,403][EpisodeOrchestrator][INFO] - [run] file_player pid=2789
+[2025-10-25 05:17:34,854][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:17:36,582][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 10.947
+[2025-10-25 05:17:41,315][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-6898f09b/orchestrator.log
+[2025-10-25 05:17:41,315][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-6898f09b seq=KAIST01 start=10.947 warmup=0.20 score=0.50 steps=20000 timeout_s=10.70
+[2025-10-25 05:17:41,316][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:17:41,316][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:17:41,317][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:17:41,317][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:41,317][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:41,318][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:17:41,332][EpisodeOrchestrator][INFO] - [run] roslaunch pid=3040
+[2025-10-25 05:17:41,336][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:17:41,348][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=3042 -> /tmp/est.tum
+[2025-10-25 05:17:41,349][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:17:42,857][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:17:42,858][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:17:42,858][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:17:42,859][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 10.947
+[2025-10-25 05:17:42,871][EpisodeOrchestrator][INFO] - [run] file_player pid=3195
+[2025-10-25 05:17:47,319][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:17:49,046][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 1.511
+[2025-10-25 05:17:53,772][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-8bb4401d/orchestrator.log
+[2025-10-25 05:17:53,772][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-8bb4401d seq=KAIST01 start=1.511 warmup=0.20 score=0.50 steps=20000 timeout_s=10.70
+[2025-10-25 05:17:53,773][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:17:53,773][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:17:53,773][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:17:53,773][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:53,773][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:17:53,774][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:17:53,787][EpisodeOrchestrator][INFO] - [run] roslaunch pid=3460
+[2025-10-25 05:17:53,791][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:17:53,803][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=3462 -> /tmp/est.tum
+[2025-10-25 05:17:53,807][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:17:55,314][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:17:55,315][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:17:55,316][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:17:55,317][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 1.511
+[2025-10-25 05:17:55,337][EpisodeOrchestrator][INFO] - [run] file_player pid=3615
+[2025-10-25 05:17:59,796][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:18:01,513][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 9.606
+[2025-10-25 05:18:20,347][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:18:22,079][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 6.309
+[2025-10-25 05:18:26,860][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-dd8f1bdd/orchestrator.log
+[2025-10-25 05:18:26,861][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-dd8f1bdd seq=KAIST01 start=6.309 warmup=0.20 score=0.50 steps=20000 timeout_s=10.70
+[2025-10-25 05:18:26,861][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:18:26,862][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:18:26,863][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:18:26,863][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:18:26,863][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:18:26,863][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:18:26,873][EpisodeOrchestrator][INFO] - [run] roslaunch pid=4215
+[2025-10-25 05:18:26,875][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:18:26,885][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=4217 -> /tmp/est.tum
+[2025-10-25 05:18:26,886][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:18:28,394][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:18:28,395][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:18:28,452][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:18:28,453][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 6.309
+[2025-10-25 05:18:28,465][EpisodeOrchestrator][INFO] - [run] file_player pid=4427
+[2025-10-25 05:18:32,915][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:18:34,648][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 7.289
+[2025-10-25 05:18:39,426][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-b1b2d4b3/orchestrator.log
+[2025-10-25 05:18:39,427][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-b1b2d4b3 seq=KAIST01 start=7.289 warmup=0.20 score=0.50 steps=20000 timeout_s=10.70
+[2025-10-25 05:18:39,427][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:18:39,427][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:18:39,428][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:18:39,428][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:18:39,428][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:18:39,429][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:18:39,442][EpisodeOrchestrator][INFO] - [run] roslaunch pid=4780
+[2025-10-25 05:18:39,446][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:18:39,458][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=4782 -> /tmp/est.tum
+[2025-10-25 05:18:39,459][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:18:41,226][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:18:41,226][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:18:41,278][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:18:41,279][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 7.289
+[2025-10-25 05:18:41,290][EpisodeOrchestrator][INFO] - [run] file_player pid=4988
+[2025-10-25 05:19:24,614][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:19:26,615][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 6.309
+[2025-10-25 05:19:31,201][EpisodeOrchestrator][DEBUG] - [ctx] attached file logger at /tmp/rlvo/run-7ae75dc2/orchestrator.log
+[2025-10-25 05:19:31,202][EpisodeOrchestrator][INFO] - [run] run_dir=/tmp/rlvo/run-7ae75dc2 seq=KAIST01 start=6.309 warmup=0.50 score=30.00 steps=20000 timeout_s=40.50
+[2025-10-25 05:19:31,202][EpisodeOrchestrator][DEBUG] - [ctx] {
+  "cwd": "/rl_vo",
+  "python": "3.8.10",
+  "PATH": "/opt/ros/noetic/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+  "ROS_MASTER_URI": "http://localhost:11311",
+  "ROS_IP": "",
+  "ROS_PACKAGE_PATH": "/workspace/catkin_ws/src:/opt/ros/noetic/share"
+}
+[2025-10-25 05:19:31,203][EpisodeOrchestrator][INFO] - [preflight] roslaunch    -> /opt/ros/noetic/bin/roslaunch
+[2025-10-25 05:19:31,203][EpisodeOrchestrator][INFO] - [preflight] odom_to_tum  -> /odom_to_tum.py
+[2025-10-25 05:19:31,203][EpisodeOrchestrator][INFO] - [preflight] rosrun       -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:19:31,203][EpisodeOrchestrator][INFO] - [preflight] file_player  -> /opt/ros/noetic/bin/rosrun
+[2025-10-25 05:19:31,203][EpisodeOrchestrator][INFO] - [spawn] roslaunch: roslaunch /rl_vo/scripts/launch_sclsam.launch
+[2025-10-25 05:19:31,213][EpisodeOrchestrator][INFO] - [run] roslaunch pid=5363
+[2025-10-25 05:19:31,214][EpisodeOrchestrator][INFO] - [spawn] odom_to_tum: /odom_to_tum.py --topic /lio_sam/mapping/odometry --out /tmp/est.tum
+[2025-10-25 05:19:31,224][EpisodeOrchestrator][INFO] - [run] odom_to_tum pid=5365 -> /tmp/est.tum
+[2025-10-25 05:19:31,225][EpisodeOrchestrator][INFO] - [net] waiting for rosbridge localhost:9090 …
+[2025-10-25 05:19:32,735][EpisodeOrchestrator][INFO] - [net] rosbridge ready
+[2025-10-25 05:19:32,735][EpisodeOrchestrator][INFO] - [run] before_play_fn() starting…
+[2025-10-25 05:19:32,790][EpisodeOrchestrator][INFO] - [run] before_play_fn() done
+[2025-10-25 05:19:32,796][EpisodeOrchestrator][INFO] - [spawn] file_player: rosrun file_player file_player_headless --dir /data/mulran/KAIST01 --rate 1 --start-percent 6.309
+[2025-10-25 05:19:32,807][EpisodeOrchestrator][INFO] - [run] file_player pid=5576

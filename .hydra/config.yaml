@@ -1,12 +1,12 @@
 seed: 0
 vo_algorithm: SCLSAM
 n_envs: 1
-total_timesteps: 4096
+total_timesteps: 50000
 log_path: ./logs
 wandb_logging: false
 wandb_tag: sclsam
 wandb_group: null
-val_interval: 2
+val_interval: 1
 roslaunch:
   package: null
   file: /rl_vo/scripts/launch_sclsam.launch
@@ -31,7 +31,7 @@ tokens:
   variable_feature_dim: 3
   critique_dim: 4
 agent:
-  n_steps: 2
+  n_steps: 8
   batch_size: 64
   gamma: 0.99
   gae_lambda: 0.95
@@ -41,7 +41,7 @@ agent:
   max_grad_norm: 0.5
   use_sde: false
 timing:
-  probe_s_min: 2.0
-  probe_s_max: 5.0
-  warmup_s: 2.0
-  score_s: 18.0
+  probe_s_min: 1
+  probe_s_max: 3
+  warmup_s: 0.5
+  score_s: 30
