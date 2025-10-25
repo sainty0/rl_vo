@@ -1,3 +1,4 @@
+# env/rl_env.py
 import os
 import time
 import math
@@ -60,26 +61,27 @@ class RunningMeanStdLite:
 
 class RLBatchedEnv(VecEnv):
     """
-    Episode-constant action env for SC-LIO-SAM parameter selection via rosbridge.
+    Multi-step, streaming env for SC-LIO-SAM parameter selection via rosbridge.
 
     reset():
-      - Select sequence and random start-percent (ensuring room for a probe if configured)
-      - Start a short probe using EpisodeOrchestrator (or just warm-up in DRY_RUN)
-      - Return normalized 16-D observation vector
+      - Choose sequence & start-percent
+      - Begin persistent episode via EpisodeOrchestrator.begin_episode()
+      - Commit metrics once to build normalized observation vector
 
     step(action):
-      - Publish leaf via rosbridge to /lio_sam/params/mapping_surf_leaf_size
-      - Run window (warmup + score) using EpisodeOrchestrator (CLI-only control)
-      - Compute APE RMSE from est_tum vs GT; return terminal reward; done=True
+      - Publish leaf via rosbridge (once per step)
+      - Sleep step_len_s (wall-clock)
+      - Compute rolling APE RMSE over last score_win_s seconds
+      - Return per-step reward; done=False until file_player ends or max_steps reached
     """
 
     metadata = {}
 
     def __init__(
-        self,
-        cfg: Dict[str, Any],
-        num_envs: int = 1,
-        mock_rosbridge: bool = False,
+            self,
+            cfg: Dict[str, Any],
+            num_envs: int = 1,
+            mock_rosbridge: bool = False,
     ):
         self.num_envs = num_envs
         self.cfg = cfg
@@ -100,9 +102,13 @@ class RLBatchedEnv(VecEnv):
         fpc = cfg.get("file_player", {})
         self.rate_hz = int(fpc.get("rate_hz", 10))
         self.start_percent_min = float(fpc.get("start_percent_min", 0.0))
-        self.start_percent_max = float(fpc.get("start_percent_max", 90.0))
+        self.start_percent_max = float(fpc.get("start_percent_max", 15.0))
 
         timing = cfg.get("timing", {})
+        self.step_len_s = float(timing.get("step_len_s", 1.0))          # sleep per RL step
+        self.score_win_s = float(timing.get("score_win_s", 3.0))        # APE over last K seconds
+        self.max_steps = int(timing.get("max_steps", 100000))               # episode horizon (steps)
+        # legacy fields still used for DRY_RUN or probe/run_window
         self.probe_s_min = float(timing.get("probe_s_min", 2.0))
         self.probe_s_max = float(timing.get("probe_s_max", 5.0))
         self.warmup_s = float(timing.get("warmup_s", 2.0))
@@ -128,9 +134,12 @@ class RLBatchedEnv(VecEnv):
         self.agent_obs_dim_fixed = self.fixed_dim
         self.agent_obs_dim_variable = self.variable_block_dim
 
+        # Reward shaping
+        rew_cfg = cfg.get("reward", {})
+        self.action_smooth_penalty = float(rew_cfg.get("action_smooth_penalty", 0.0))
 
-        rosbridge = cfg.get("rosbridge", {})
-        self.rosbridge_url = rosbridge.get("url", "ws://localhost:9090")
+        rb_port = int(cfg.get("rosbridge", {}).get("port", 9090))
+        self.rosbridge_url = f"ws://localhost:{rb_port}"
         self.leaf_topic = cfg.get("topics", {}).get("leaf", "/lio_sam/params/mapping_surf_leaf_size")
         self.odom_topic = cfg.get("topics", {}).get("odom", "/lio_sam/mapping/odometry_incremental")
 
@@ -156,10 +165,12 @@ class RLBatchedEnv(VecEnv):
             odom_topic=self.odom_topic,
         )
 
-        # Episode-local sample
+        # Episode-local state
         self._current_seq = None
         self._current_start_percent = None
-        self._pending_action = None
+        self._steps = 0
+        self._last_action = 0.0
+        self._episode_alive = False
 
     # ---- VecEnv required API ----
     def reset(self, seed: int = None, options: Dict[str, Any] = None) -> np.ndarray:
@@ -167,103 +178,117 @@ class RLBatchedEnv(VecEnv):
             random.seed(seed)
             np.random.seed(seed)
 
-        obs_norm = self._start_new_episode()
+        # Choose sequence & start-percent (room for streaming episode)
+        self._current_seq = random.choice(self.seqs)
+        self._current_start_percent = random.uniform(self.start_percent_min, self.start_percent_max)
+
+        # Start streaming episode
+        self._orch.begin_episode(
+            seq_name=self._current_seq,
+            start_percent=float(self._current_start_percent),
+            safe_leaf=0.40,
+        )
+        self._episode_alive = True
+        self._steps = 0
+        self._last_action = 0.0
+
+        # First metrics snapshot for initial obs
+        stats = self._orch.commit_metrics()
+        obs_norm = self._obs_from_stats(stats, action_last=0.0, update_rms=True)
         return obs_norm
 
-
     def step(self, actions: np.ndarray, use_gt_initialization: bool = True):
-        # Episode-constant action: apply once and run terminal window
+        """
+        Streaming step:
+          - map action -> leaf, publish once
+          - tick(step_len_s)
+          - compute rolling APE over last score_win_s
+          - build next obs from committed metrics
+        """
+        # Map action
         a = float(np.clip(actions.reshape(-1)[0], 0.0, 1.0))
         leaf = action_to_leaf(a)
-        # self._publish_leaf(leaf)
 
-        def _publish_leaf_now():
+        # Publish leaf now (if not mocked)
+        if not self._mock_rb:
             try:
-                self._rb.publish_float(self.leaf_topic, float(leaf))
-                time.sleep(0.05)  # give SC-LIO-SAM a beat to apply
+                self._orch.set_leaf(self.leaf_topic, float(leaf))
+                time.sleep(0.05)  # let it apply
             except Exception as e:
                 print(f"[WARN] rosbridge publish failed: {e}")
 
-        # Run the window; steps = round(rate_hz * (warmup_s + score_s))
-        result = self._orch.run_window(
-            seq_name=self._current_seq,
-            start_percent=float(self._current_start_percent),
-            warmup_s=self.warmup_s,
-            score_s=self.score_s,
-            before_play_fn=None if self._mock_rb else _publish_leaf_now,
-        )
+        # Advance one RL step
+        self._orch.tick(self.step_len_s)
 
-        est_path = result["est_tum"]
+        # Compute rolling APE RMSE (clip [0,20])
+        est_path = self.est_tum
         gt_path = self._resolve_gt_path(self._current_seq)
-
-        # Compute APE RMSE (clip [0,20])
-        ape = ape_rmse(est_path, gt_path)
+        ape = ape_rmse(est_path, gt_path, score_last_seconds=self.score_win_s)
         ape = float(min(max(ape, 0.0), 20.0))
 
-        timeout = 1.0 if result.get("timeout", False) else 0.0
-        diverged = 1.0 if result.get("diverged", False) else 0.0
-        runtime = float(result.get("runtime_s", self.warmup_s + self.score_s))
+        # Per-step reward; include light runtime penalty and optional smoothness
+        runtime = self.step_len_s
+        reward = - ape - 0.01 * runtime - self.action_smooth_penalty * abs(a - self._last_action)
 
-        reward = - ape - 0.01 * runtime - 5.0 * timeout - 10.0 * diverged
+        # Done conditions
+        self._steps += 1
+        self._last_action = a
+        player_alive = self._orch.is_player_alive()
+        done_flag = (not player_alive) or (self._steps >= self.max_steps)
+        done = np.array([done_flag] * self.num_envs, dtype=bool)
 
-        done = np.ones((self.num_envs,), dtype=bool)
+        # Build next observation from fresh metrics snapshot
+        stats = self._orch.commit_metrics()
+        obs = self._obs_from_stats(stats, action_last=a, update_rms=True)
+
         info_item = {
             "ape_rmse": ape,
             "leaf": leaf,
             "seq": self._current_seq,
             "start_percent": self._current_start_percent,
-            "runtime_s": runtime,
-            "timeout": bool(timeout),
-            "diverged": bool(diverged),
+            "runtime_s": float(runtime),
+            "step_idx": int(self._steps),
+            "player_alive": bool(player_alive),
         }
         info = [info_item for _ in range(self.num_envs)]
+
+        # Valid mask (all True here; wire up exporter status if desired)
         valid_mask = np.ones((self.num_envs,), dtype=bool)
 
-        # Auto-reset: begin next episode immediately and return its initial obs
-        next_obs = self._start_new_episode()
-        return next_obs, np.array([reward], dtype=np.float32), done, info, valid_mask
+        # If episode ended, stop processes; user must call reset() next
+        if done_flag:
+            self._orch.end_episode()
+            self._episode_alive = False
+
+        # Return next_obs, reward, done, info, valid_mask (kept for your collector)
+        return obs, np.array([reward], dtype=np.float32), done, info, valid_mask
 
     def update_rms(self):
-        """
-        Your collector calls this between iterations.
-        Our obs RMS is already updated in reset() from the latest probe stats,
-        so this is intentionally a no-op.
-        """
+        """Kept for API parity; RMS is updated opportunistically inside step/reset."""
         return
 
     def save_rms(self, path: str):
-        """
-        Optional: lets you persist normalization stats alongside a checkpoint.
-        """
         os.makedirs(os.path.dirname(path), exist_ok=True)
         np.savez(path, mean=self.obs_rms.mean, var=self.obs_rms.var, count=self.obs_rms.count)
 
     def load_rms(self, path: str):
-        """
-        Optional: restore normalization stats when resuming training/eval.
-        """
         d = np.load(path)
         self.obs_rms.mean = d["mean"]
         self.obs_rms.var = d["var"]
         self.obs_rms.count = float(d["count"])
 
     # ---- helpers ----
-    def _build_obs_composite(self, stats: Dict[str, float]) -> np.ndarray:
-        """
-        Returns (n_env, total_obs_dim) composite vector:
-          [ fixed_16 | (max_tokens * variable_feature_dim) | critique_tail ]
-        """
+    def _obs_from_stats(self, stats: Dict[str, float], action_last: float, update_rms: bool) -> np.ndarray:
         # Fixed 16
         fixed = np.zeros((self.num_envs, self.fixed_dim), dtype=np.float32)
         for j, k in enumerate(self._fixed_keys):
             fixed[0, j] = float(stats.get(k, 0.0))
-        fixed[0, -1] = 0.0  # action_last = 0 during probe
+        fixed[0, -1] = float(action_last)  # action_last in [0,1]
 
-        # Variable tokens
+        # Variable tokens (optional)
         toks = stats.get("variable_tokens", [])
         vf = self.variable_feature_dim
         mt = self.max_tokens
-        # Pad/truncate to (mt, vf)
         toks_np = np.zeros((mt, vf), dtype=np.float32)
         for i in range(min(len(toks), mt)):
             tok = toks[i]
@@ -271,10 +296,9 @@ class RLBatchedEnv(VecEnv):
                 toks_np[i, j] = float(tok[j])
         var_flat = toks_np.reshape(1, mt * vf)
 
-        # Critique tail (if not provided, derive from fixed)
+        # Critique tail (derive if missing)
         tail = stats.get("critique_tail", None)
         if tail is None or len(tail) < self.critique_dim:
-            # derive a default 4-D tail
             derived = [
                 float(stats.get("odom_rate_hz", 0.0)),
                 float(stats.get("pose_dropouts_s", 0.0)),
@@ -286,65 +310,23 @@ class RLBatchedEnv(VecEnv):
             tail = tail[:self.critique_dim]
         tail_np = np.array(tail, dtype=np.float32).reshape(1, self.critique_dim)
 
-        # Concat → (1, total_obs_dim)
-        obs = np.concatenate([fixed, var_flat, tail_np], axis=1)
-        return obs.astype(np.float32)
-
-
-    def _publish_leaf(self, leaf: float):
-        # rosbridge is assumed to be started by the roslaunch
-        try:
-            self._rb.publish_float(self.leaf_topic, float(leaf))
-        except Exception as e:
-            # If rosbridge is down, we proceed (reward will penalize via timeout/diverge)
-            print(f"[WARN] rosbridge publish failed: {e}")
+        obs_raw = np.concatenate([fixed, var_flat, tail_np], axis=1).astype(np.float32)
+        if update_rms:
+            self.obs_rms.update(obs_raw)
+        obs_norm = self.obs_rms.normalize(obs_raw)
+        self._last_obs[:] = obs_norm
+        return self._last_obs.copy()
 
     def _resolve_gt_path(self, seq: str) -> str:
-        """
-        Assumption: Ground truth TUM file is located at:
-            <seq_root>/<seq>/<seq>_gt.tum
-        Adjust this as needed if your GT lives elsewhere.
-        In DRY_RUN, if missing, create a synthetic GT to match the est length.
-        """
         path = os.path.join(self.seq_root, seq, f"{seq}_gt.tum")
         if os.path.exists(path):
             return path
-
-        # DRY_RUN: synthesize a smooth GT file if not present (write under run_root to avoid read-only dataset dirs)
         if os.environ.get("DRY_RUN", "0") == "1":
             safe_gt = os.path.join(self.run_root, f"{seq}_gt.tum")
             self._write_synthetic_gt(safe_gt)
             return safe_gt
-
-        # If no GT, fall back to est path (APE=0) but warn; better to raise and force config fix.
         print(f"[WARN] GT not found at {path}; using est for APE=0 fallback.")
         return self.est_tum
-    def _start_new_episode(self) -> np.ndarray:
-        # Choose sequence & start-percent with margin for probe + run window
-        self._current_seq = random.choice(self.seqs)
-        probe_s = random.uniform(self.probe_s_min, self.probe_s_max)
-        margin_pct = self._seconds_to_percent(self.warmup_s + self.score_s + probe_s)
-        low = self.start_percent_min
-        high = max(self.start_percent_min, min(self.start_percent_max, 100.0 - margin_pct))
-        if high <= low:
-            high = self.start_percent_max
-        self._current_start_percent = random.uniform(low, high)
-
-        # Real probe via orchestrator (metrics_exporter already in the launch)
-        stats = self._orch.probe(
-            seq_name=self._current_seq,
-            start_percent=float(self._current_start_percent),
-            duration_s=probe_s,
-            safe_leaf=0.40,
-            topics={"leaf": self.leaf_topic},
-        )
-        print(f"[INFO] Stats: {stats}")
-        obs = self._build_obs_composite(stats)
-        obs_raw = self._build_obs_composite(stats)
-        self.obs_rms.update(obs_raw)
-        obs_norm = self.obs_rms.normalize(obs_raw)
-        self._last_obs[:] = obs_norm
-        return self._last_obs.copy()
 
     @staticmethod
     def _write_synthetic_gt(path: str, n: int = 200, dt: float = 0.1):
@@ -357,32 +339,26 @@ class RLBatchedEnv(VecEnv):
 
     @staticmethod
     def _roslaunch_cmd_from_cfg(cfg: Dict[str, Any]) -> List[str]:
-        # By default, use our provided launch file; user may customize
         launch_pkg = cfg.get("roslaunch", {}).get("package", None)
         launch_file = cfg.get("roslaunch", {}).get("file", "/rl_vo/scripts/launch_sclsam.launch")
+        rb_port = int(cfg.get("rosbridge", {}).get("port", 9090))
+        args = [f"rosbridge_port:={rb_port}"]
         if launch_pkg:
-            return ["roslaunch", launch_pkg, launch_file]
-        # Absolute or relative .launch path (roslaunch supports relative from CWD)
-        return ["roslaunch", launch_file]
+            return ["roslaunch", launch_pkg, launch_file] + args
+        return ["roslaunch", launch_file] + args
 
-    # Unused VecEnv abstract methods (not needed by the PPO loop in rl_vo)
+    # VecEnv abstract methods not used
     def close(self):
         try:
-            self._orch._teardown_all()
-        except Exception:
-            pass
-        try:
-            if hasattr(self._rb, "close"):
-                self._rb.close()
+            if self._episode_alive:
+                self._orch.end_episode()
         except Exception:
             pass
 
-    # The following are (not implemented) methods for the abstract parent methods
     def render(self):
         raise NotImplementedError
 
     def env_is_wrapped(self, wrapper_class: Type[gym.Wrapper], indices: VecEnvIndices = None) -> List[bool]:
-        """Check if worker environments are wrapped with a given wrapper"""
         raise NotImplementedError
 
     def env_method(
@@ -392,26 +368,12 @@ class RLBatchedEnv(VecEnv):
             indices: VecEnvIndices = None,
             **method_kwargs
     ) -> List[Any]:
-        """Call instance methods of vectorized environments."""
         raise NotImplementedError
 
     def get_attr(self, attr_name, indices=None):
-        """
-        Return attribute from vectorized environment.
-        :param attr_name: (str) The name of the attribute whose value to return
-        :param indices: (list,int) Indices of envs to get attribute from
-        :return: (list) List of values of 'attr_name' in all environments
-        """
         raise NotImplementedError
 
     def set_attr(self, attr_name, value, indices=None):
-        """
-        Set attribute inside vectorized environments.
-        :param attr_name: (str) The name of attribute to assign new value
-        :param value: (obj) Value to assign to `attr_name`
-        :param indices: (list,int) Indices of envs to assign value
-        :return: (NoneType)
-        """
         raise NotImplementedError
 
     def step_async(self):
@@ -419,12 +381,3 @@ class RLBatchedEnv(VecEnv):
 
     def step_wait(self):
         raise NotImplementedError
-
-    # Utility
-    @staticmethod
-    def _seconds_to_percent(seconds: float) -> float:
-        # Heuristic: estimate percent budget using playback rate; if total seq duration unknown,
-        # reserve a small margin (we assume user sets start_percent_max conservatively).
-        # Here we map seconds to ~percent-of-seq as a tiny fraction to avoid impossible constraints.
-        # You can override by tightening start_percent_max in config.
-        return min(5.0, max(0.0, seconds * 0.01))

@@ -1,7 +1,8 @@
 <launch>
   <arg name="project" default="rl_launcher"/>
   <arg name="enable_metrics_exporter" default="true"/>
-  <arg name="metrics_out_file" default="/tmp/rlvo/probe.json"/>
+  <arg name="metrics_out_file" default="/tmp/rlvo/metrics.json"/>
+  <arg name="rosbridge_port" default="9090"/>
 
   <!-- Parameters -->
   <rosparam file="$(find lio_sam)/config/params_mulran.yaml" command="load" />
@@ -20,7 +21,7 @@
 
   <!-- Rosbridge server (WebSocket on 9090 by default) -->
   <node pkg="rosbridge_server" type="rosbridge_websocket.py" name="rosbridge_websocket" output="screen">
-    <param name="port" value="9090"/>
+    <param name="port" value="$(arg rosbridge_port)"/>
     <param name="unregister_timeout" value="10.0"/>
   </node>
 

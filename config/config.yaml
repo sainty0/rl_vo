@@ -18,7 +18,7 @@ rosbridge:
 
 topics:
   leaf: "/lio_sam/params/mapping_surf_leaf_size"
-  odom: "/lio_sam/mapping/odometry"
+  odom: "/lio_sam/mapping/odometry_incremental"
 
 file_player:
   rate_hz: 1

@@ -23,42 +23,7 @@ def configure_random_seed(seed, env=None):
 def main(config):
     torch.init_num_threads()
 
-    # -------- Branch selection --------
-    val_env = None
-    eval_interval = -1
-    policy = None
-    policy_kwargs = {}
-
-    if config.vo_algorithm == "SVO":
-        # Lazily import, to avoid SVO deps on the SCLSAM branch
-        from env.svo_wrapper import VecSVOEnv
-
-        env = VecSVOEnv(
-            config.svo_params_file, config.svo_calib_file,
-            config.dataset_dir, config.n_envs, reward_config=config.agent.reward,
-            mode="train", initialize_glog=True
-        )
-        val_env = VecSVOEnv(
-            config.svo_params_file, config.svo_calib_file, config.dataset_dir, 32,
-            reward_config=config.agent.reward, mode="val", initialize_glog=False
-        )
-
-        policy = CustomActorCriticPolicy
-        encoder_kwargs = dict(
-            variable_feature_dim=env.variable_feature_dim,
-            obs_dim_variable=env.agent_obs_dim_variable,
-            obs_dim_fixed=env.agent_obs_dim_fixed,
-            critique_dim=env.critique_dim,
-        )
-        policy_kwargs = dict(
-            encoder_kwargs=encoder_kwargs,
-            activation_fn=torch.nn.ReLU,
-            net_arch=dict(pi=[256, 256], vf=[256, 256]),
-            log_std_init=-0.0,
-        )
-        eval_interval = config.val_interval
-
-    elif config.vo_algorithm == "SCLSAM":
+    if config.vo_algorithm == "SCLSAM":
         # New lidar path: attention policy with [fixed | variable tokens | critique tail]
         cfg_dict = OmegaConf.to_container(config, resolve=True)
 
@@ -164,13 +129,22 @@ def main(config):
         model.policy.to(device)
 
     # -------- Train --------
-    model.learn(
-        total_timesteps=int(config.total_timesteps),
-        log_interval=100,
-        eval_interval=eval_interval,
-        val_env=val_env,
-    )
-
+    try:
+        model.learn(
+            total_timesteps=int(config.total_timesteps),
+            log_interval=100,
+            eval_interval=eval_interval,
+            val_env=val_env,
+        )
+    except KeyboardInterrupt:
+        print("KeyboardInterrupt: shutting down cleanly…")
+    finally:
+        try:
+            if val_env is not None: val_env.close()
+        except Exception: pass
+        try:
+            if env is not None: env.close()
+        except Exception: pass
 
 if __name__ == "__main__":
     main()

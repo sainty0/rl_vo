@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # Minimal ROS1 metrics exporter for probe features.
-# Computes lightweight stats over a window and writes JSON to /tmp/rlvo/probe.json.
+# Computes lightweight stats over a window and writes JSON to /tmp/rlvo/metrics.json.
 # Exposes:
 #   /rl_metrics/reset  (std_srvs/Trigger)  -> clears accumulators
 #   /rl_metrics/commit (std_srvs/Trigger)  -> writes JSON file and returns success
 #
 # Params (ROS ~private params override CLI):
-#   ~out_file: path to write JSON (default: /tmp/rlvo/probe.json)
+#   ~out_file: path to write JSON (default: /tmp/rlvo/metrics.json)
 #   ~dropout_thresh: seconds; odom Δt above this count toward pose_dropouts_s
 #   ~scan_topic: PointCloud2 topic for scans (default: /lio_sam/deskew/cloud_deskewed)
 #   ~surf_topic: PointCloud2 topic for surface features
@@ -53,7 +53,7 @@ class MetricsExporter:
     def __init__(self):
         import argparse
         ap = argparse.ArgumentParser()
-        ap.add_argument("--out", default="/tmp/rlvo/probe.json")
+        ap.add_argument("--out", default="/tmp/rlvo/metrics.json")
         ap.add_argument("--dropout_thresh", type=float, default=0.3)
         ap.add_argument("--scan_topic", default="/lio_sam/deskew/cloud_deskewed")
         ap.add_argument("--surf_topic", default="/lio_sam/feature/cloud_surface")
