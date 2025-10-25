@@ -1,4 +1,13 @@
 seed: 0
+vo_algorithm: "SCLSAM"
+n_envs: 1
+total_timesteps: 100000
+
+log_path: "./logs"
+wandb_logging: false
+wandb_tag: "sclsam"
+wandb_group: null
+val_interval: 1
 
 roslaunch:
   package: null
@@ -23,6 +32,22 @@ mulran:
 paths:
   est_tum: "/tmp/est.tum"
   run_root: "/tmp/rlvo"
+
+tokens:
+  max_tokens: 64
+  variable_feature_dim: 3   # [surf_pts, corner_pts, vel_norm]
+  critique_dim: 4           # [odom_rate_hz, pose_dropouts_s, scan_rate_hz, pts_per_scan_mean]
+
+agent:
+  n_steps: 128
+  batch_size: 64
+  gamma: 0.99
+  gae_lambda: 0.95
+  n_epochs: 10
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  use_sde: false
 
 timing:
   probe_s_min: 2.0

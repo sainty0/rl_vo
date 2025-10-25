@@ -2,7 +2,6 @@
 import os
 import uuid
 import json
-import math
 import socket
 import time
 import shlex
@@ -14,7 +13,9 @@ import logging
 import shutil
 from urllib.parse import urlsplit
 from datetime import datetime
-from typing import Dict, List, Optional, Callable, Tuple, IO
+from typing import Dict, List, Optional, Callable, IO
+
+from .rosbridge_client import RosbridgeClient
 
 """
 EpisodeOrchestrator
@@ -78,40 +79,86 @@ class EpisodeOrchestrator:
     # ------------------------------
     # Public API
     # ------------------------------
-    def probe(self, duration_s: float, safe_leaf: float, topics: Dict[str, str]) -> Dict[str, float]:
-        probe_steps = max(1, int(round(self.rate_hz * duration_s)))
-        if self._dry_run:
-            self._logger.info("[probe] DRY_RUN=1 → returning synthetic probe stats")
-            return self._synthetic_probe(duration_s)
+    # env/episode_orchestrator.py (replace the entire probe() method with this)
 
+    def probe(self,
+              seq_name: str,
+              start_percent: float,
+              duration_s: float,
+              safe_leaf: float,
+              topics: Dict[str, str],
+              timeout_s: Optional[float] = None) -> Dict[str, float]:
+        """
+        Real probe:
+          - Launch ROS graph
+          - Start metrics_exporter (separate process)
+          - Set safe leaf via rosbridge
+          - Start file_player WITHOUT --step (wall-clock control)
+          - Sleep for duration_s, then commit metrics via /rl_metrics/commit
+          - Read JSON and return
+        """
+        if timeout_s is None:
+            timeout_s = duration_s + 5.0
+
+        seq_dir = os.path.join(self.seq_root, seq_name)
         run_dir = self._new_run_dir(tag="probe")
-        self._attach_file_logger(run_dir)
+        out_json = os.environ.get("METRICS_OUT_FILE", "/tmp/rlvo/probe.json")
 
-        self._logger.info("[probe] run_dir=%s steps=%d duration_s=%.3f", run_dir, probe_steps, duration_s)
-        self._log_system_context()
-
-        try:
-            self._preflight_checks()
-            self._ros_proc = self._pg_spawn(self.roslaunch_cmd, run_dir, name="roslaunch")
-            self._logger.info("[probe] roslaunch pid=%d", self._ros_proc.pid)
-
-            self._ensure_parent_dir(self.est_out)
-            odom_cmd = f'{self._odom_to_tum_cmd} --topic {shlex.quote(self.odom_topic)} --out {shlex.quote(self.est_out)}'
-            self._odom_proc = self._pg_spawn(shlex.split(odom_cmd), run_dir, name="odom_to_tum")
-            self._logger.info("[probe] odom_to_tum pid=%d -> %s", self._odom_proc.pid, self.est_out)
-
-            self._wait_for_rosbridge_port(run_dir)
-
-            time.sleep(max(0.2, duration_s))
-            self._logger.info("[probe] done; returning synthetic stats placeholder")
+        if self._dry_run:
+            # synthetic probe (unchanged)
             return self._synthetic_probe(duration_s)
 
-        except Exception as e:
-            self._logger.exception("[probe] FAILED: %s", e)
-            self._tail_child_logs(run_dir)
-            raise
+        t0 = time.time()
+        try:
+            # Start ROS graph (launch should include rosbridge_websocket)
+            self._ros_proc = self._pg_spawn(cmd=self.roslaunch_cmd, cwd=run_dir, name="roslaunch")
+
+            # Give nodes time to come up
+            time.sleep(1.0)
+
+            # rosbridge client (lazy connect)
+            rb = RosbridgeClient(self.rosbridge_url, lazy=True)
+
+            # Reset exporter accumulators
+            try:
+                rb.call_service("/rl_metrics/reset", {})
+            except Exception as e:
+                print(f"[WARN] reset service failed: {e}")
+
+            # Publish safe leaf
+            try:
+                rb.publish_float(topics["leaf"], float(safe_leaf))
+            except Exception as e:
+                print(f"[WARN] publish safe leaf failed: {e}")
+
+            # Start file player WITHOUT --step; control via wall-clock
+            player_cmd = f'{self._file_player_cmd} --dir {shlex.quote(seq_dir)} --rate {self.rate_hz} --start-percent {float(start_percent):.3f}'
+            self._player_proc = self._pg_spawn(cmd=shlex.split(player_cmd), cwd=run_dir, name="file_player")
+
+            # Wait for duration (with outer timeout guard)
+            t1 = time.time()
+            while (time.time() - t1) < duration_s:
+                if (time.time() - t0) > timeout_s:
+                    raise TimeoutError("probe timed out")
+                time.sleep(0.05)
+
+            # Commit exporter stats
+            try:
+                rb.call_service("/rl_metrics/commit", {})
+            except Exception as e:
+                print(f"[WARN] commit service failed: {e}")
+
+            # Read JSON
+            stats = {}
+            try:
+                with open(out_json, "r") as f:
+                    stats = json.load(f)
+            except Exception as e:
+                print(f"[WARN] failed to read probe JSON {out_json}: {e}")
+            return stats
         finally:
             self._teardown_all()
+
 
     def run_window(
         self,
@@ -123,8 +170,7 @@ class EpisodeOrchestrator:
         before_play_fn: Optional[Callable] = None,
     ) -> Dict[str, object]:
         # steps = int(round(self.rate_hz * (warmup_s + score_s)))
-        # steps = max(1, steps)
-        steps = 30000
+        steps = 20000
         if timeout_s is None:
             timeout_s = warmup_s + score_s + 10.0
 
@@ -181,12 +227,18 @@ class EpisodeOrchestrator:
                 except Exception as e:
                     self._logger.warning("[run] before_play_fn raised: %s", e, exc_info=True)
 
-            player_cmd = f'{self._file_player_cmd} --dir {shlex.quote(seq_dir)} --rate {self.rate_hz} --start-percent {float(start_percent):.3f} --step {steps}'
+            player_cmd = f'{self._file_player_cmd} --dir {shlex.quote(seq_dir)} --rate {self.rate_hz} --start-percent {float(start_percent):.3f}'
             self._player_proc = self._pg_spawn(shlex.split(player_cmd), run_dir, name="file_player")
             pids["file_player"] = self._player_proc.pid
             self._logger.info("[run] file_player pid=%d", self._player_proc.pid)
 
-            self._wait_with_timeout(self._player_proc, timeout_s)
+            target = warmup_s + score_s
+            t0 = time.time()
+            while (time.time() - t0) < target:
+                time.sleep(0.05)
+            self._teardown_all()
+            runtime = time.time() - t0
+            return {"est_tum": self.est_out, "runtime_s": float(runtime), "timeout": False, "diverged": False}
 
         except TimeoutError:
             timeout = True
@@ -222,6 +274,75 @@ class EpisodeOrchestrator:
     # ------------------------------
     # Internals / helpers
     # ------------------------------
+    def _compute_probe_stats_from_tum(self, tum_path: str) -> dict:
+        """
+        Parse a TUM file and compute simple health stats.
+        Returns zeros if file is missing/empty.
+        """
+        if not os.path.exists(tum_path):
+            return {
+                "num_samples": 0,
+                "odom_rate_hz": 0.0,
+                "span_s": 0.0,
+                "dropout_events": 0,
+                "median_dt": None,
+                "first_ts": None,
+                "last_ts": None,
+                "bytes": 0,
+            }
+
+        ts = []
+        bytesz = os.path.getsize(tum_path)
+        try:
+            with open(tum_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    # TUM: t x y z qx qy qz qw
+                    parts = line.split()
+                    try:
+                        ts.append(float(parts[0]))
+                    except Exception:
+                        continue
+        except Exception as e:
+            logging.warning(f"[probe] failed reading {tum_path}: {e}")
+            ts = []
+
+        n = len(ts)
+        if n < 2:
+            return {
+                "num_samples": n,
+                "odom_rate_hz": 0.0,
+                "span_s": 0.0,
+                "dropout_events": 0,
+                "median_dt": None,
+                "first_ts": ts[0] if n == 1 else None,
+                "last_ts": ts[0] if n == 1 else None,
+                "bytes": bytesz,
+            }
+
+        dts = [ts[i+1] - ts[i] for i in range(n-1) if ts[i+1] >= ts[i]]
+        dts = [dt for dt in dts if dt > 1e-6]
+        dts_sorted = sorted(dts)
+        median_dt = dts_sorted[len(dts_sorted)//2] if dts_sorted else 0.0
+        odom_rate_hz = (1.0 / median_dt) if median_dt > 0 else 0.0
+
+        # Count dropouts: any gap larger than 0.25s (tune as needed)
+        dropout_threshold = 0.25
+        dropout_events = sum(1 for dt in dts if dt > dropout_threshold)
+
+        return {
+            "num_samples": n,
+            "odom_rate_hz": odom_rate_hz,
+            "span_s": (ts[-1] - ts[0]) if ts[-1] >= ts[0] else 0.0,
+            "dropout_events": dropout_events,
+            "median_dt": median_dt,
+            "first_ts": ts[0],
+            "last_ts": ts[-1],
+            "bytes": bytesz,
+        }
+
     def _new_run_dir(self, tag: str) -> str:
         rid = f"{tag}-{uuid.uuid4().hex[:8]}"
         d = os.path.join(self.run_root, rid)

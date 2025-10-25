@@ -1,5 +1,6 @@
 # env/rosbridge_client.py
-import json, time
+import json, time, uuid
+from typing import Optional
 try:
     import websocket  # pip install websocket-client
 except Exception:
@@ -38,6 +39,28 @@ class RosbridgeClient:
         self.ensure_connected()
         msg = {"op": "publish", "topic": topic, "msg": {"data": float(value)}}
         self.ws.send(json.dumps(msg))
+
+    def call_service(self, service: str, args: Optional[dict] = None, timeout_s: float = 3.0) -> dict:
+        """
+        Synchronous service call over rosbridge. Returns the 'values' dict from service_response.
+        """
+        self.ensure_connected()
+        req_id = str(uuid.uuid4())
+        req = {"op": "call_service", "service": service, "args": (args or {}), "id": req_id}
+        self.ws.send(json.dumps(req))
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            frame = self.ws.recv()
+            if not frame:
+                continue
+            try:
+                data = json.loads(frame)
+            except Exception:
+                continue
+            if data.get("op") == "service_response" and data.get("id") == req_id:
+                return data
+        raise TimeoutError(f"rosbridge service {service} timed out")
+
 
     def close(self):
         try:

@@ -1,0 +1,5 @@
+- vo_algorithm=SCLSAM
+- n_envs=1
+- total_timesteps=4096
+- val_interval=2
+- log_path=./logs

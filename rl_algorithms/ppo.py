@@ -184,7 +184,7 @@ class PPO(OnPolicyAlgorithm):
                 tags.append(self.wandb_tag)
 
             agent_dict_config = omegaconf.OmegaConf.to_container(self.config.agent, resolve=True, throw_on_missing=True)
-            self.wandb_run = wandb.init(entity="<entity>",
+            self.wandb_run = wandb.init(entity="saintyrod-the-university-of-queensland",
                                         project="vo_rl",
                                         dir=log_dir,
                                         tags=tags,

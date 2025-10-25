@@ -317,7 +317,10 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             self.train()
 
             if eval_interval != -1 and self.iteration % eval_interval == 0:
-                self.evaluation_epoch(val_env)
+                if hasattr(val_env, "dataloader"):
+                    self.evaluation_epoch(val_env)
+                else:
+                    self.evaluation_epoch_sclsam(val_env, n_episodes=getattr(self, "eval_episodes", 8))
 
                 if self.log_dir is not None:
                     policy_path = self.log_dir + "/Policy/"
@@ -426,6 +429,83 @@ class OnPolicyAlgorithm(BaseAlgorithm):
                 wandb_dir["eval/mean_" + key] = (value / (nr_samples_traj + 1e-9)).mean()
             self.wandb_run.log(wandb_dir)
 
+    def evaluation_epoch_sclsam(self, val_env, n_episodes: int = 8) -> None:
+        """
+        Evaluation for the SC-LIO-SAM episode-constant env.
+        Runs `n_episodes` single-step episodes (reset -> one action -> terminal reward).
+        Expects `val_env.step(...)` to return info dicts with keys:
+          - 'ape_rmse', 'timeout', 'diverged', 'runtime_s', and optionally 'leaf', 'seq'
+        """
+        self.policy.set_training_mode(False)
+        rewards = []
+        apes = []
+        timeouts = []
+        diverged = []
+        runtimes = []
+        leaves = []
+        seqs = []
+
+        for ep in range(max(1, int(n_episodes))):
+            obs = val_env.reset()
+            obs_tensor = obs_as_tensor(obs, self.device)
+            with th.no_grad():
+                actions, values, log_probs = self.policy.forward(obs_tensor, deterministic=True)
+
+            # Clip/unscale like in the SVO evaluator
+            clipped_actions = actions.cpu().numpy()
+            if isinstance(self.action_space, spaces.Box):
+                if getattr(self.policy, "squash_output", False):
+                    clipped_actions = self.policy.unscale_action(clipped_actions)
+                else:
+                    clipped_actions = np.clip(clipped_actions, self.action_space.low, self.action_space.high)
+
+            # Terminal step
+            obs, rew, done, infos, valid_mask = val_env.step(clipped_actions, use_gt_initialization=True)
+
+            # The env is batched; we evaluate env 0
+            r = float(np.array(rew).reshape(-1)[0])
+            info0 = infos[0] if isinstance(infos, (list, tuple)) and len(infos) > 0 else {}
+
+            rewards.append(r)
+            apes.append(float(info0.get("ape_rmse", np.nan)))
+            timeouts.append(1.0 if info0.get("timeout", False) else 0.0)
+            diverged.append(1.0 if info0.get("diverged", False) else 0.0)
+            runtimes.append(float(info0.get("runtime_s", np.nan)))
+            if "leaf" in info0:
+                leaves.append(float(info0["leaf"]))
+            if "seq" in info0:
+                seqs.append(str(info0["seq"]))
+
+        # Aggregate
+        mean_rew = float(np.nanmean(rewards)) if len(rewards) else float("nan")
+        mean_ape = float(np.nanmean(apes)) if len(apes) else float("nan")
+        timeout_rate = float(np.mean(timeouts)) if len(timeouts) else 0.0
+        diverged_rate = float(np.mean(diverged)) if len(diverged) else 0.0
+        mean_runtime = float(np.nanmean(runtimes)) if len(runtimes) else float("nan")
+
+        # Console summary
+        print("[EVAL SCLSAM] episodes:", n_episodes)
+        print("[EVAL SCLSAM] mean_reward:", mean_rew, "mean_APE:", mean_ape,
+              "timeout_rate:", timeout_rate, "diverged_rate:", diverged_rate,
+              "mean_runtime_s:", mean_runtime)
+
+        # WandB (if enabled)
+        if getattr(self, "wandb_logging", False):
+            log_dict = {
+                "eval_sclsam/mean_reward": mean_rew,
+                "eval_sclsam/mean_ape_rmse": mean_ape,
+                "eval_sclsam/timeout_rate": timeout_rate,
+                "eval_sclsam/diverged_rate": diverged_rate,
+                "eval_sclsam/mean_runtime_s": mean_runtime,
+                "eval_sclsam/iteration": self.iteration,
+            }
+            # Optional: log last chosen leaf and sequence histogram if available
+            if len(leaves) > 0:
+                log_dict["eval_sclsam/mean_leaf"] = float(np.mean(leaves))
+            if len(seqs) > 0:
+                # store a few for inspection
+                log_dict["eval_sclsam/sample_seqs"] = ", ".join(seqs[:5])
+            self.wandb_run.log(log_dict)
 
     def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
         state_dicts = ["policy", "policy.optimizer"]

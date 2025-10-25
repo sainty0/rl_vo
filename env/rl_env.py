@@ -1,4 +1,5 @@
 import os
+import time
 import math
 import random
 import numpy as np
@@ -107,16 +108,38 @@ class RLBatchedEnv(VecEnv):
         self.warmup_s = float(timing.get("warmup_s", 2.0))
         self.score_s = float(timing.get("score_s", 18.0))
 
+        tokens_cfg = cfg.get("tokens", {})
+        self.max_tokens = int(tokens_cfg.get("max_tokens", 64))
+        self.variable_feature_dim = int(tokens_cfg.get("variable_feature_dim", 3))
+        self.critique_dim = int(tokens_cfg.get("critique_dim", 4))
+        self._fixed_keys = [
+            "pts_per_scan_mean","pts_per_scan_std","scan_rate_hz",
+            "surf_pts_mean","surf_pts_std","corner_pts_mean","corner_pts_std",
+            "odom_rate_hz","pose_dropouts_s",
+            "vel_norm_mean","vel_norm_std","acc_jolt_mean",
+            "imu_ang_vel_rms","imu_lin_acc_rms",
+            "planarity_ratio_mean","action_last",
+        ]
+        self.fixed_dim = len(self._fixed_keys)
+        self.variable_block_dim = self.max_tokens * self.variable_feature_dim
+        self.total_obs_dim = self.fixed_dim + self.variable_block_dim + self.critique_dim
+
+        # Expose shapes for your attention policy
+        self.agent_obs_dim_fixed = self.fixed_dim
+        self.agent_obs_dim_variable = self.variable_block_dim
+
+
         rosbridge = cfg.get("rosbridge", {})
         self.rosbridge_url = rosbridge.get("url", "ws://localhost:9090")
         self.leaf_topic = cfg.get("topics", {}).get("leaf", "/lio_sam/params/mapping_surf_leaf_size")
         self.odom_topic = cfg.get("topics", {}).get("odom", "/lio_sam/mapping/odometry_incremental")
 
         # Observation/Action spaces
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(16,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf,
+                                            shape=(self.total_obs_dim,), dtype=np.float32)
         self.action_space = spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32)
-        self.obs_rms = RunningMeanStdLite(16)
-        self._last_obs = np.zeros((self.num_envs, 16), dtype=np.float32)
+        self.obs_rms = RunningMeanStdLite(self.total_obs_dim)
+        self._last_obs = np.zeros((self.num_envs, self.total_obs_dim), dtype=np.float32)
 
         # Rosbridge client (mock allowed for unit tests)
         self._mock_rb = bool(mock_rosbridge or (os.environ.get("DRY_RUN", "0") == "1"))
@@ -144,28 +167,9 @@ class RLBatchedEnv(VecEnv):
             random.seed(seed)
             np.random.seed(seed)
 
-        # Choose sequence and random starting percent, keep margin before run for a separate probe
-        self._current_seq = random.choice(self.seqs)
-        probe_s = random.uniform(self.probe_s_min, self.probe_s_max)
-        margin_pct = self._seconds_to_percent(self.warmup_s + self.score_s + probe_s)
+        obs_norm = self._start_new_episode()
+        return obs_norm
 
-        low = self.start_percent_min
-        high = max(self.start_percent_min, min(self.start_percent_max, 100.0 - margin_pct))
-        if high <= low:
-            # Fallback: if not enough room, clamp within allowed range
-            high = self.start_percent_max
-        self._current_start_percent = random.uniform(low, high)
-
-        # Run a short probe (cleaner: separate process-level episode)
-        probe_stats = self._orch.probe(duration_s=probe_s, safe_leaf=0.40, topics={"leaf": self.leaf_topic})
-
-        # Build observation vector (16-D, see spec)
-        obs = self._build_obs(probe_stats)
-        self.obs_rms.update(obs)
-        obs_norm = self.obs_rms.normalize(obs)
-
-        self._last_obs[:] = obs_norm
-        return self._last_obs
 
     def step(self, actions: np.ndarray, use_gt_initialization: bool = True):
         # Episode-constant action: apply once and run terminal window
@@ -176,6 +180,7 @@ class RLBatchedEnv(VecEnv):
         def _publish_leaf_now():
             try:
                 self._rb.publish_float(self.leaf_topic, float(leaf))
+                time.sleep(0.05)  # give SC-LIO-SAM a beat to apply
             except Exception as e:
                 print(f"[WARN] rosbridge publish failed: {e}")
 
@@ -214,30 +219,82 @@ class RLBatchedEnv(VecEnv):
         info = [info_item for _ in range(self.num_envs)]
         valid_mask = np.ones((self.num_envs,), dtype=bool)
 
-        # Next observation is irrelevant for terminal episodes; return last obs
-        return self._last_obs.copy(), np.array([reward], dtype=np.float32), done, info, valid_mask
+        # Auto-reset: begin next episode immediately and return its initial obs
+        next_obs = self._start_new_episode()
+        return next_obs, np.array([reward], dtype=np.float32), done, info, valid_mask
+
+    def update_rms(self):
+        """
+        Your collector calls this between iterations.
+        Our obs RMS is already updated in reset() from the latest probe stats,
+        so this is intentionally a no-op.
+        """
+        return
+
+    def save_rms(self, path: str):
+        """
+        Optional: lets you persist normalization stats alongside a checkpoint.
+        """
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        np.savez(path, mean=self.obs_rms.mean, var=self.obs_rms.var, count=self.obs_rms.count)
+
+    def load_rms(self, path: str):
+        """
+        Optional: restore normalization stats when resuming training/eval.
+        """
+        d = np.load(path)
+        self.obs_rms.mean = d["mean"]
+        self.obs_rms.var = d["var"]
+        self.obs_rms.count = float(d["count"])
 
     # ---- helpers ----
-    def _build_obs(self, stats: Dict[str, float]) -> np.ndarray:
-        keys = [
-            "pts_per_scan_mean", "pts_per_scan_std", "scan_rate_hz",
-            "surf_pts_mean", "surf_pts_std", "corner_pts_mean", "corner_pts_std",
-            "odom_rate_hz", "pose_dropouts_s",
-            "vel_norm_mean", "vel_norm_std", "acc_jolt_mean",
-            "imu_ang_vel_rms", "imu_lin_acc_rms",
-            "planarity_ratio_mean", "action_last",
-        ]
-        v = np.zeros((self.num_envs, 16), dtype=np.float32)
-        for j, k in enumerate(keys):
-            v[0, j] = float(stats.get(k, 0.0))
-        # Ensure action_last=0 during probe
-        v[0, -1] = 0.0
-        return v
+    def _build_obs_composite(self, stats: Dict[str, float]) -> np.ndarray:
+        """
+        Returns (n_env, total_obs_dim) composite vector:
+          [ fixed_16 | (max_tokens * variable_feature_dim) | critique_tail ]
+        """
+        # Fixed 16
+        fixed = np.zeros((self.num_envs, self.fixed_dim), dtype=np.float32)
+        for j, k in enumerate(self._fixed_keys):
+            fixed[0, j] = float(stats.get(k, 0.0))
+        fixed[0, -1] = 0.0  # action_last = 0 during probe
+
+        # Variable tokens
+        toks = stats.get("variable_tokens", [])
+        vf = self.variable_feature_dim
+        mt = self.max_tokens
+        # Pad/truncate to (mt, vf)
+        toks_np = np.zeros((mt, vf), dtype=np.float32)
+        for i in range(min(len(toks), mt)):
+            tok = toks[i]
+            for j in range(min(vf, len(tok))):
+                toks_np[i, j] = float(tok[j])
+        var_flat = toks_np.reshape(1, mt * vf)
+
+        # Critique tail (if not provided, derive from fixed)
+        tail = stats.get("critique_tail", None)
+        if tail is None or len(tail) < self.critique_dim:
+            # derive a default 4-D tail
+            derived = [
+                float(stats.get("odom_rate_hz", 0.0)),
+                float(stats.get("pose_dropouts_s", 0.0)),
+                float(stats.get("scan_rate_hz", 0.0)),
+                float(stats.get("pts_per_scan_mean", 0.0)),
+            ]
+            tail = (derived + [0.0] * self.critique_dim)[:self.critique_dim]
+        else:
+            tail = tail[:self.critique_dim]
+        tail_np = np.array(tail, dtype=np.float32).reshape(1, self.critique_dim)
+
+        # Concat → (1, total_obs_dim)
+        obs = np.concatenate([fixed, var_flat, tail_np], axis=1)
+        return obs.astype(np.float32)
+
 
     def _publish_leaf(self, leaf: float):
         # rosbridge is assumed to be started by the roslaunch
         try:
-            self.rb.publish_float(self.leaf_topic, float(leaf))
+            self._rb.publish_float(self.leaf_topic, float(leaf))
         except Exception as e:
             # If rosbridge is down, we proceed (reward will penalize via timeout/diverge)
             print(f"[WARN] rosbridge publish failed: {e}")
@@ -262,6 +319,32 @@ class RLBatchedEnv(VecEnv):
         # If no GT, fall back to est path (APE=0) but warn; better to raise and force config fix.
         print(f"[WARN] GT not found at {path}; using est for APE=0 fallback.")
         return self.est_tum
+    def _start_new_episode(self) -> np.ndarray:
+        # Choose sequence & start-percent with margin for probe + run window
+        self._current_seq = random.choice(self.seqs)
+        probe_s = random.uniform(self.probe_s_min, self.probe_s_max)
+        margin_pct = self._seconds_to_percent(self.warmup_s + self.score_s + probe_s)
+        low = self.start_percent_min
+        high = max(self.start_percent_min, min(self.start_percent_max, 100.0 - margin_pct))
+        if high <= low:
+            high = self.start_percent_max
+        self._current_start_percent = random.uniform(low, high)
+
+        # Real probe via orchestrator (metrics_exporter already in the launch)
+        stats = self._orch.probe(
+            seq_name=self._current_seq,
+            start_percent=float(self._current_start_percent),
+            duration_s=probe_s,
+            safe_leaf=0.40,
+            topics={"leaf": self.leaf_topic},
+        )
+        print(f"[INFO] Stats: {stats}")
+        obs = self._build_obs_composite(stats)
+        obs_raw = self._build_obs_composite(stats)
+        self.obs_rms.update(obs_raw)
+        obs_norm = self.obs_rms.normalize(obs_raw)
+        self._last_obs[:] = obs_norm
+        return self._last_obs.copy()
 
     @staticmethod
     def _write_synthetic_gt(path: str, n: int = 200, dt: float = 0.1):
@@ -289,8 +372,8 @@ class RLBatchedEnv(VecEnv):
         except Exception:
             pass
         try:
-            if hasattr(self.rb, "close"):
-                self.rb.close()
+            if hasattr(self._rb, "close"):
+                self._rb.close()
         except Exception:
             pass
 

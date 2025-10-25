@@ -1,0 +1,47 @@
+seed: 0
+vo_algorithm: SCLSAM
+n_envs: 1
+total_timesteps: 4096
+log_path: ./logs
+wandb_logging: false
+wandb_tag: sclsam
+wandb_group: null
+val_interval: 2
+roslaunch:
+  package: null
+  file: /rl_vo/scripts/launch_sclsam.launch
+rosbridge:
+  url: ws://localhost:9090
+topics:
+  leaf: /lio_sam/params/mapping_surf_leaf_size
+  odom: /lio_sam/mapping/odometry
+file_player:
+  rate_hz: 1
+  start_percent_min: 0
+  start_percent_max: 15
+mulran:
+  root: /data/mulran
+  seqs:
+  - KAIST01
+paths:
+  est_tum: /tmp/est.tum
+  run_root: /tmp/rlvo
+tokens:
+  max_tokens: 64
+  variable_feature_dim: 3
+  critique_dim: 4
+agent:
+  n_steps: 2
+  batch_size: 64
+  gamma: 0.99
+  gae_lambda: 0.95
+  n_epochs: 10
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  use_sde: false
+timing:
+  probe_s_min: 2.0
+  probe_s_max: 5.0
+  warmup_s: 2.0
+  score_s: 18.0

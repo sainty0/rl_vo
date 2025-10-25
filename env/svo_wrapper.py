@@ -285,7 +285,7 @@ class VecSVOEnv(VecEnv):
 
         return reward, info, position_error_array
 
-    def update_alignment_buffer(self, pos_svo_mask, poses, gt_poses):
+    def update_alignent_buffer(self, pos_svo_mask, poses, gt_poses):
         full_mask = np.logical_and(self.env_steps >= self.reward_traj_length, pos_svo_mask)
         if full_mask.any():
             self.positions[full_mask, :-1, :] = self.positions[full_mask, 1:, :]
