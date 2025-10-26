@@ -1,0 +1,31 @@
+<launch>
+  <!-- Args -->
+  <arg name="rosbridge_port" default="9090"/>
+  <arg name="enable_metrics_exporter" default="true"/>
+  <arg name="metrics_out_file" default="/tmp/rlvo/metrics.json"/>
+
+  <!-- Rosbridge server (WebSocket) -->
+  <node pkg="rosbridge_server" type="rosbridge_websocket.py" name="rosbridge_websocket"
+        output="screen" respawn="false" required="false">
+    <param name="port" value="$(arg rosbridge_port)"/>
+    <param name="unregister_timeout" value="10.0"/>
+  </node>
+
+  <!-- Metrics Exporter persists across episodes -->
+  <group if="$(arg enable_metrics_exporter)">
+    <node pkg="metric_pkg" type="metrics_exporter.py" name="rl_metrics_exporter"
+          output="screen" respawn="false" required="false">
+      <param name="out_file" value="$(arg metrics_out_file)"/>
+      <param name="dropout_thresh" value="0.15"/>
+
+      <!-- Preserve topics/params exactly as original -->
+      <param name="scan_topic"   value="/lio_sam/deskew/cloud_deskewed"/>
+      <param name="surf_topic"   value="/lio_sam/feature/cloud_surface"/>
+      <param name="corner_topic" value="/lio_sam/feature/cloud_corner"/>
+      <param name="odom_topic"   value="/lio_sam/mapping/odometry_incremental"/>
+      <param name="imu_topic"    value="/imu/data_raw"/>
+      <param name="max_tokens" value="64"/>
+      <param name="match_tol_s" value="0.05"/>
+    </node>
+  </group>
+</launch>

@@ -1,0 +1,11 @@
+<launch>
+  <!-- Load LIO-SAM params (same as original) -->
+  <rosparam file="$(find lio_sam)/config/params_mulran.yaml" command="load" />
+
+  <!-- LIO-SAM modules that depend on monotonic /clock -->
+  <include file="$(find lio_sam)/launch/include/module_loam.launch" />
+  <include file="$(find lio_sam)/launch/include/module_robot_state_publisher.launch" />
+  <include file="$(find lio_sam)/launch/include/module_navsat.launch" />
+
+  <!-- No rosbridge or metrics here; orchestrator manages lifecycle and core persists -->
+</launch>

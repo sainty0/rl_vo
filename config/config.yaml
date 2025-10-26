@@ -11,7 +11,7 @@ val_interval: 1
 
 roslaunch:
   package: null
-  file: "/rl_vo/scripts/launch_sclsam.launch"
+  file: "/rl_vo/launch/core.launch"
 
 rosbridge:
   url: "ws://localhost:9090"

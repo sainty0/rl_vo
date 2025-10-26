@@ -362,7 +362,8 @@ class RLBatchedEnv(VecEnv):
     @staticmethod
     def _roslaunch_cmd_from_cfg(cfg: Dict[str, Any]) -> List[str]:
         launch_pkg = cfg.get("roslaunch", {}).get("package", None)
-        launch_file = cfg.get("roslaunch", {}).get("file", "/rl_vo/scripts/launch_sclsam.launch")
+        # Default to the persistent core; orchestrator restarts lio_stack per-episode
+        launch_file = cfg.get("roslaunch", {}).get("file", "/rl_vo/launch/core.launch")
         rb_port = int(cfg.get("rosbridge", {}).get("port", 9090))
         args = [f"rosbridge_port:={rb_port}"]
         if launch_pkg:

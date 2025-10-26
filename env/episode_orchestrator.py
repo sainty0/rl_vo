@@ -39,6 +39,7 @@ class EpisodeOrchestrator:
             odom_topic: str = "/lio_sam/mapping/odometry_incremental",
             stream_to_stdout: bool = True,
             tail_lines_on_fail: int = 200,
+            lio_launch_cmd: Optional[List[str]] = None,
     ):
         self.roslaunch_cmd = list(roslaunch_cmd)
         self.seq_root = seq_root
@@ -57,6 +58,7 @@ class EpisodeOrchestrator:
         # Episode actors
         self._odom_proc: Optional[subprocess.Popen] = None
         self._player_proc: Optional[subprocess.Popen] = None
+        self._lio_proc: Optional[subprocess.Popen] = None
 
         self._tee_threads: List[threading.Thread] = []
         self._rb: Optional[RosbridgeClient] = None
@@ -65,6 +67,13 @@ class EpisodeOrchestrator:
         self._odom_to_tum_cmd = os.environ.get("ODOM_TO_TUM_CMD", "/odom_to_tum.py")
         self._file_player_cmd = os.environ.get("FILE_PLAYER_CMD", "rosrun file_player file_player_headless")
         self._metrics_out = os.environ.get("METRICS_OUT_FILE", "/tmp/rlvo/metrics.json")
+        # Optional override for LIO-SAM stack launch (list of argv), or via env LIO_SAM_LAUNCH_CMD
+        # Default to local lio_stack.launch so preflight reports a sensible status.
+        self._lio_launch_cmd = (
+            list(lio_launch_cmd)
+            if lio_launch_cmd is not None
+            else (shlex.split(os.environ.get("LIO_SAM_LAUNCH_CMD", "")) or ["roslaunch", "/rl_vo/launch/lio_stack.launch"])
+        )
 
         self._dry_run = (os.environ.get("DRY_RUN", "0") == "1")
         self._ros_down = False
@@ -115,7 +124,17 @@ class EpisodeOrchestrator:
             if self._rb is None:
                 self._rb = RosbridgeClient(self.rosbridge_url, lazy=True)
 
-        # 2) (Re)start odom_to_tum for this episode
+        # 2) Restart LIO stack every episode
+        try:
+            self._kill_pg(self._lio_proc)
+        except Exception:
+            pass
+        self._lio_proc = None
+        lio_cmd = self._lio_launch_cmd or ["roslaunch", "/rl_vo/launch/lio_stack.launch"]
+        self._lio_proc = self._pg_spawn(lio_cmd, run_dir, name="lio_stack")
+        self._logger.info("[begin] lio_stack pid=%d", self._lio_proc.pid if self._lio_proc else -1)
+
+        # 3) (Re)start odom_to_tum for this episode
         self._ensure_parent_dir(self.est_out)
         self._kill_pg(self._odom_proc)  # safety if stale
         odom_cmd = f'{self._odom_to_tum_cmd} --topic {shlex.quote(self.odom_topic)} --out {shlex.quote(self.est_out)}'
@@ -138,11 +157,18 @@ class EpisodeOrchestrator:
         self._player_proc = self._pg_spawn(shlex.split(player_cmd), run_dir, name="file_player")
         self._logger.info("[begin] file_player pid=%d", self._player_proc.pid)
 
+        # Optional readiness gate on metrics file (non-fatal)
+        ready = self._wait_for_metrics_ready(timeout_s=8.0)
+        if not ready:
+            self._logger.warning("[begin] metrics readiness timed out; proceeding anyway")
+
         self._t_stream_start = time.time()
         return {
             "run_dir": run_dir,
             "pids": {
+                "roslaunch-core": self._ros_proc.pid if self._ros_proc else None,
                 "roslaunch": self._ros_proc.pid if self._ros_proc else None,
+                "lio_stack": self._lio_proc.pid if self._lio_proc else None,
                 "odom_to_tum": self._odom_proc.pid if self._odom_proc else None,
                 "file_player": self._player_proc.pid if self._player_proc else None,
             },
@@ -219,6 +245,7 @@ class EpisodeOrchestrator:
     def close_all(self):
         self._kill_pg(self._player_proc); self._player_proc = None
         self._kill_pg(self._odom_proc);   self._odom_proc   = None
+        self._kill_pg(self._lio_proc);    self._lio_proc    = None
         self._kill_pg(self._ros_proc);    self._ros_proc    = None
         self._stream_run_dir = None
         self._t_stream_start = None
@@ -389,6 +416,23 @@ class EpisodeOrchestrator:
             "action_last": 0.0,
         }
 
+    def _wait_for_metrics_ready(self, timeout_s: float = 8.0) -> bool:
+        """
+        Poll metrics JSON until odom_rate_hz>0 and variable_tokens_n>0, or timeout.
+        Returns True if ready else False.
+        """
+        t0 = time.time()
+        while time.time() - t0 < timeout_s:
+            try:
+                with open(self._metrics_out, "r") as f:
+                    d = json.load(f)
+                if float(d.get("odom_rate_hz", 0.0)) > 0.0 and int(d.get("variable_tokens_n", 0)) > 0:
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.1)
+        return False
+
     def _preflight_checks(self):
         def _which(x: str) -> Optional[str]:
             if " " in x:
@@ -401,10 +445,23 @@ class EpisodeOrchestrator:
                   else shutil.which(self._odom_to_tum_cmd)),
             "rosrun": shutil.which("rosrun"),
             "file_player": _which(self._file_player_cmd),
+            "lio_stack": _which(self._lio_launch_cmd[0]) if self._lio_launch_cmd else None,
         }
         for name, resolved in checks.items():
             self._logger.info("[preflight] %-12s -> %s", name, resolved or "<not found>")
-            if resolved is None:
+            if name == "lio_stack" and self._lio_launch_cmd:
+                # If using 'roslaunch <file.launch>', also verify the .launch file path
+                launch_args = self._lio_launch_cmd[1:]
+                launch_file = None
+                if launch_args:
+                    # roslaunch [<pkg> <file>] OR [<file>]; detect path-like .launch
+                    if len(launch_args) == 1 and launch_args[0].endswith(".launch"):
+                        launch_file = launch_args[0]
+                    elif len(launch_args) >= 2 and launch_args[1].endswith(".launch"):
+                        launch_file = launch_args[1]
+                if launch_file:
+                    self._logger.info("[preflight] %-12s file -> %s (exists=%s)", "lio_stack", launch_file, os.path.exists(launch_file))
+            if resolved is None and name != "lio_stack":
                 self._logger.warning("[preflight] %s NOT found on PATH; launch may fail", name)
 
     def _log_system_context(self):
