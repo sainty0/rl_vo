@@ -132,6 +132,7 @@ class RLBatchedEnv(VecEnv):
         self._steps = 0
         self._last_action = 0.0
         self._episode_alive = False
+        self._pending_rms_update = False
 
     # ----------------- VecEnv API ----------------- #
     def reset(self, seed: int = None, options: Dict[str, Any] = None) -> np.ndarray:
@@ -151,9 +152,16 @@ class RLBatchedEnv(VecEnv):
         self._steps = 0
         self._last_action = 0.0
 
-        stats = self._orch.commit_metrics()
-        obs_norm = self._obs_from_stats(stats, action_last=0.0, update_rms=True)
-        return obs_norm
+        t0 = time.time()
+        stats = {}
+        while time.time() - t0 < 1.0:
+            stats = self._orch.commit_metrics()
+            if stats:
+                break
+            time.sleep(0.05)
+        obs = self._obs_from_stats(stats or {}, action_last=0.0, update_rms=bool(stats))
+        self._pending_rms_update = not bool(stats)
+        return obs
 
     def step(self, actions: np.ndarray, use_gt_initialization: bool = True):
         """
@@ -184,16 +192,17 @@ class RLBatchedEnv(VecEnv):
         done_flag = (not player_alive) or (not comms_ok) or will_hit_horizon
 
         if done_flag:
-            # Kill everything (player + roslaunch)
-            self._orch.close_all()
+            # Keep core alive at normal episode end; restart only episode actors
+            if not comms_ok:
+                self._orch.close_all()
+                done_reason = "ros_down"
+            else:
+                self._orch.end_episode()
+                done_reason = "player_ended" if not player_alive else "max_steps"
 
-            # Pick new random start percent for next episode
+            # Pick new random start percent for next episode and (re)start episode actors without killing core
             self._current_seq = random.choice(self.seqs)
-            self._current_start_percent = random.uniform(
-                self.start_percent_min, self.start_percent_max
-            )
-
-            # Restart SC-LIO-SAM and fileplayer
+            self._current_start_percent = random.uniform(self.start_percent_min, self.start_percent_max)
             self._orch.begin_episode(
                 seq_name=self._current_seq,
                 start_percent=float(self._current_start_percent),
@@ -202,11 +211,17 @@ class RLBatchedEnv(VecEnv):
             self._steps = 0
             self._last_action = 0.0
 
-            # Get fresh observation from new episode
-            stats = self._orch.commit_metrics()
-            obs = self._obs_from_stats(stats, action_last=0.0, update_rms=True)
+            # Warm-up: wait briefly for first non-empty metrics
+            t0 = time.time()
+            stats = {}
+            while time.time() - t0 < 1.0:
+                stats = self._orch.commit_metrics()
+                if stats:
+                    break
+                time.sleep(0.05)
+            obs = self._obs_from_stats(stats or {}, action_last=0.0, update_rms=bool(stats))
+            self._pending_rms_update = not bool(stats)
 
-            # Report that previous episode ended
             info_item = {
                 "ape_rmse": None,
                 "leaf": leaf,
@@ -215,11 +230,11 @@ class RLBatchedEnv(VecEnv):
                 "runtime_s": float(runtime),
                 "step_idx": int(self._steps),
                 "player_alive": bool(player_alive),
-                "done_reason": "ros_down" if not comms_ok else
-                "player_ended" if not player_alive else
-                "max_steps",
+                "done_reason": done_reason,
+                "valid_mask": False,
             }
-            valid_mask = np.ones((self.num_envs,), dtype=bool)
+            valid_mask = np.zeros((self.num_envs,), dtype=bool)
+            # Report that previous episode ended; return fresh obs for next episode and done=True
             return (
                 obs,
                 np.array([0.0], dtype=np.float32),
@@ -233,26 +248,50 @@ class RLBatchedEnv(VecEnv):
         gt_path = self._resolve_gt_path(self._current_seq)
         stats = self._orch.commit_metrics()
 
-        ape = ape_rmse(est_path, gt_path, score_last_seconds=self.score_win_s)
-        ape = float(min(max(ape, 0.0), 20.0))
+        have_stats = bool(stats) and (int(stats.get("variable_tokens_n", 0)) > 0)
+        obs = self._obs_from_stats(
+            stats if have_stats else {},
+            action_last=a,
+            update_rms=have_stats or getattr(self, "_pending_rms_update", False)
+        )
+        if have_stats and getattr(self, "_pending_rms_update", False):
+            self._pending_rms_update = False
 
-        reward = - ape - 0.01 * float(runtime) - self.action_smooth_penalty * abs(a - self._last_action)
+        # Default: invalid until GT confirmed and stats present
+        valid_mask = np.array([have_stats], dtype=bool)
 
+        reward = 0.0
+        if gt_path and os.path.exists(gt_path):
+            try:
+                samefile = os.path.samefile(gt_path, est_path)
+            except Exception:
+                samefile = (os.path.abspath(gt_path) == os.path.abspath(est_path))
+            if not samefile and have_stats:
+                ape = float(ape_rmse(est_path, gt_path, score_last_seconds=self.score_win_s))
+                runtime_pen = 0.001 * float(runtime)
+                delta_pen = 0.01 * abs(a - float(self._last_action or 0.0))
+                reward = 0.1 * (-float(ape)) - runtime_pen - delta_pen
+                valid_mask[:] = True
+            else:
+                # invalid if GT is same as est (fallback) or no stats
+                valid_mask[:] = False
+        else:
+            valid_mask[:] = False
+
+        # Step bookkeeping
         self._steps += 1
         self._last_action = a
 
-        obs = self._obs_from_stats(stats, action_last=a, update_rms=bool(stats))
-
         info_item = {
-            "ape_rmse": ape,
+            "ape_rmse": float(ape) if 'ape' in locals() else None,
             "leaf": leaf,
             "seq": self._current_seq,
             "start_percent": self._current_start_percent,
             "runtime_s": float(runtime),
             "step_idx": int(self._steps),
             "player_alive": True,
+            "valid_mask": bool(valid_mask[0]),
         }
-        valid_mask = np.ones((self.num_envs,), dtype=bool)
         return obs, np.array([reward], dtype=np.float32), np.array([False], dtype=bool), [info_item], valid_mask
 
     def close(self):
@@ -338,4 +377,3 @@ class RLBatchedEnv(VecEnv):
     def update_rms(self):
         """SB3 compatibility: RMS is updated opportunistically in step/reset."""
         return
-

@@ -239,11 +239,18 @@ class OnPolicyAlgorithm(BaseAlgorithm):
 
         if self.wandb_logging:
             nr_valid_states = rollout_buffer.valid_mask.sum()
+            valid_frac = nr_valid_states / float(rollout_buffer.valid_mask.size)
+            # Mean reward over valid steps only
+            valid_rewards_sum = (rollout_buffer.rewards * rollout_buffer.valid_mask).sum()
+            mean_reward_valid_only = valid_rewards_sum / max(nr_valid_states, 1)
+
             wandb_dir = {
                 "rollout/sum_reward": rollout_buffer.rewards.sum(),
+                "rollout/mean_reward_valid_only": mean_reward_valid_only,
                 "rollout/sum_valid_stages": nr_valid_states,
-                "rollout/ratio_valid_stages": nr_valid_states / float(rollout_buffer.valid_mask.size),
-                "rollout/mean_keyframes": (rollout_buffer.actions[:, :, 0] * rollout_buffer.valid_mask[:, :]).sum() / nr_valid_states,
+                "rollout/ratio_valid_stages": valid_frac,
+                "rollout/valid_frac": valid_frac,
+                "rollout/mean_keyframes": (rollout_buffer.actions[:, :, 0] * rollout_buffer.valid_mask[:, :]).sum() / max(nr_valid_states, 1),
                 "rollout/iteration": self.iteration,
             }
             self.wandb_run.log(wandb_dir)

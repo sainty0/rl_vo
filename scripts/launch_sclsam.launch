@@ -31,7 +31,7 @@
     <node pkg="metric_pkg" type="metrics_exporter.py" name="rl_metrics_exporter"
           output="screen" respawn="true" respawn_delay="2.0" required="false">
       <param name="out_file" value="$(arg metrics_out_file)"/>
-      <param name="dropout_thresh" value="0.3"/>
+      <param name="dropout_thresh" value="0.15"/>
       <param name="scan_topic"   value="/lio_sam/deskew/cloud_deskewed"/>
       <param name="surf_topic"   value="/lio_sam/feature/cloud_surface"/>
       <param name="corner_topic" value="/lio_sam/feature/cloud_corner"/>

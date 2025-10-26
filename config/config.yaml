@@ -35,8 +35,8 @@ paths:
 
 tokens:
   max_tokens: 64
-  variable_feature_dim: 3   # [surf_pts, corner_pts, vel_norm]
-  critique_dim: 4           # [odom_rate_hz, pose_dropouts_s, scan_rate_hz, pts_per_scan_mean]
+  variable_feature_dim: 3   # [surf_pts, corner_pts, vel_norm
+  critique_dim: 4
 
 agent:
   n_steps: 128
@@ -44,7 +44,7 @@ agent:
   gamma: 0.99
   gae_lambda: 0.95
   n_epochs: 10
-  ent_coef: 0.0
+  ent_coef: 0.01
   vf_coef: 0.5
   max_grad_norm: 0.5
   use_sde: false
