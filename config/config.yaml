@@ -23,7 +23,7 @@ topics:
 file_player:
   rate_hz: 1
   start_percent_min: 0
-  start_percent_max: 15
+  start_percent_max: 80
 
 mulran:
   root: "/data/mulran"

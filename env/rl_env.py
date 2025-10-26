@@ -20,7 +20,9 @@ LEAF_MAX = 1.00
 def action_to_leaf(a: float) -> float:
     a = float(max(0.0, min(1.0, a)))
     lo = math.log(LEAF_MIN); hi = math.log(LEAF_MAX)
-    return float(max(LEAF_MIN, min(LEAF_MAX, math.exp(lo + a * (hi - lo)))))
+    bounded_a = float(max(LEAF_MIN, min(LEAF_MAX, math.exp(lo + a * (hi - lo)))))
+    print(f"[DEBUG] bounded_action = {bounded_a}, action = {a}")
+    return bounded_a
 
 class RunningMeanStdLite:
     def __init__(self, dim: int):
@@ -65,7 +67,7 @@ class RLBatchedEnv(VecEnv):
         fpc = cfg.get("file_player", {})
         self.rate_hz = int(fpc.get("rate_hz", 10))
         self.start_percent_min = float(fpc.get("start_percent_min", 0.0))
-        self.start_percent_max = float(fpc.get("start_percent_max", 15.0))
+        self.start_percent_max = float(fpc.get("start_percent_max", 80.0))
 
         timing = cfg.get("timing", {})
         self.step_len_s = float(timing.get("step_len_s", 1.0))
@@ -270,6 +272,7 @@ class RLBatchedEnv(VecEnv):
                 ape = float(ape_rmse(est_path, gt_path, score_last_seconds=self.score_win_s))
                 runtime_pen = 0.001 * float(runtime)
                 delta_pen = 0.01 * abs(a - float(self._last_action or 0.0))
+                print(f"[DEBUG] ape: {ape}, runtime: {runtime_pen}, delta: {delta_pen}")
                 reward = 0.1 * (-float(ape)) - runtime_pen - delta_pen
                 valid_mask[:] = True
             else:
