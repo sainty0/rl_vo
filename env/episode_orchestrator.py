@@ -17,29 +17,17 @@ from typing import Dict, List, Optional, Callable, IO
 
 from .rosbridge_client import RosbridgeClient
 
-"""
-EpisodeOrchestrator
-===================
-
-Adds:
-- Live tee of child stdout/stderr to console + files (with timestamps)
-- Preflight command checks and environment snapshot
-- rosbridge port wait based on rosbridge_url
-- Clear return metadata (run_dir, PIDs, exit codes)
-- Tail of recent child logs on failure/timeout
-
-NEW (streaming API):
-- begin_episode(): spawn roslaunch + odom_to_tum, wait for rosbridge, start file_player (kept alive)
-- set_leaf(): publish parameter during a running episode
-- tick(): wall-clock advance for one RL step
-- commit_metrics(): call metrics exporter commit + read JSON to feed observations each step
-- is_player_alive(): detect end of dataset/player
-- end_episode(): teardown all children
-
-Legacy APIs (probe/run_window) are preserved for compatibility.
-"""
-
 class EpisodeOrchestrator:
+    """
+    Orchestrates a long-lived ROS core + roslaunch stack and short-lived episode
+    actors (fileplayer + odom_to_tum). Core stays up across episodes.
+
+    Lifecycle:
+      begin_episode()  -> ensure core up, reset metrics, start fileplayer
+      end_episode()    -> stop fileplayer + odom_to_tum only (core stays)
+      close_all()      -> stop everything (core + episode actors)
+    """
+
     def __init__(
             self,
             roslaunch_cmd: List[str],
@@ -61,26 +49,27 @@ class EpisodeOrchestrator:
         self.odom_topic = odom_topic
         self.stream_to_stdout = stream_to_stdout
         self.tail_lines_on_fail = tail_lines_on_fail
-        self._ros_down = False
 
         os.makedirs(self.run_root, exist_ok=True)
 
+        # Core
         self._ros_proc: Optional[subprocess.Popen] = None
+        # Episode actors
         self._odom_proc: Optional[subprocess.Popen] = None
         self._player_proc: Optional[subprocess.Popen] = None
+
         self._tee_threads: List[threading.Thread] = []
         self._rb: Optional[RosbridgeClient] = None
 
-        # External overrides (optional) via env:
+        # Externals (env overrides)
         self._odom_to_tum_cmd = os.environ.get("ODOM_TO_TUM_CMD", "/odom_to_tum.py")
         self._file_player_cmd = os.environ.get("FILE_PLAYER_CMD", "rosrun file_player file_player_headless")
-        # Metrics JSON path (used by probe and streaming commits)
         self._metrics_out = os.environ.get("METRICS_OUT_FILE", "/tmp/rlvo/metrics.json")
 
-        # Dry run flag
         self._dry_run = (os.environ.get("DRY_RUN", "0") == "1")
+        self._ros_down = False
 
-        # Logger
+        # Logging
         self._logger = logging.getLogger("EpisodeOrchestrator")
         self._logger.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
@@ -89,60 +78,51 @@ class EpisodeOrchestrator:
         if not any(isinstance(h, logging.StreamHandler) for h in self._logger.handlers):
             self._logger.addHandler(ch)
 
-        # Streaming episode book-keeping
+        # Book-keeping
         self._stream_run_dir: Optional[str] = None
         self._t_stream_start: Optional[float] = None
         self._last_commit_ts: float = 0.0
 
-    # ------------------------------
-    # Streaming, stateful episode API
-    # ------------------------------
-    def begin_episode(
-            self,
-            seq_name: str,
-            start_percent: float,
-            safe_leaf: float,
-    ) -> Dict[str, object]:
-        """
-        Start a persistent episode:
-          - spawn roslaunch
-          - start odom_to_tum to continuously write est_out
-          - wait for rosbridge to accept connections
-          - (re)create rosbridge client
-          - reset metrics exporter and publish safe leaf
-          - start file_player from seq dir at start_percent
-        Returns run metadata (run_dir, pids, est_out).
-        """
+    # ------------------------------------------------------------------ #
+    # Public API
+    # ------------------------------------------------------------------ #
+    def begin_episode(self, seq_name: str, start_percent: float, safe_leaf: float) -> Dict[str, object]:
         seq_dir = os.path.join(self.seq_root, seq_name)
-        run_dir = self._new_run_dir(tag="stream")
-        self._attach_file_logger(run_dir)
-        self._log_system_context()
-
-        # DRY_RUN: just stub state
-        if self._dry_run:
-            self._logger.info("[begin] DRY_RUN=1 seq=%s start=%.3f", seq_name, start_percent)
-            self._ensure_parent_dir(self.est_out)
-            # start with a small synthetic file so APE has something
-            self._write_synthetic_tum(self.est_out, n=int(2 * self.rate_hz))
+        if self._stream_run_dir is None:
+            run_dir = self._new_run_dir(tag="stream")
+            self._attach_file_logger(run_dir)
+            self._log_system_context()
             self._stream_run_dir = run_dir
+        run_dir = self._stream_run_dir
+
+        if self._dry_run:
+            self._logger.info("[begin] DRY_RUN seq=%s start=%.3f", seq_name, start_percent)
+            self._ensure_parent_dir(self.est_out)
+            self._write_synthetic_tum(self.est_out, n=int(2 * self.rate_hz))
             self._t_stream_start = time.time()
+            self._ros_down = False
             return {"run_dir": run_dir, "pids": {}, "est_tum": self.est_out}
 
-        # Real processes
-        self._preflight_checks()
+        # 1) Ensure core (roslaunch + rosbridge + metrics + LIO-SAM) is alive/reused
+        if not self.is_ros_ok():
+            self._logger.info("[core] starting roslaunch core…")
+            self._preflight_checks()
+            self._ros_proc = self._pg_spawn(self.roslaunch_cmd, run_dir, name="roslaunch")
+            self._logger.info("[core] roslaunch pid=%d", self._ros_proc.pid)
+            self._wait_for_rosbridge_port(run_dir)
+            self._rb = RosbridgeClient(self.rosbridge_url, lazy=True)
+        else:
+            if self._rb is None:
+                self._rb = RosbridgeClient(self.rosbridge_url, lazy=True)
 
-        self._ros_proc = self._pg_spawn(self.roslaunch_cmd, run_dir, name="roslaunch")
-        self._logger.info("[begin] roslaunch pid=%d", self._ros_proc.pid)
-
+        # 2) (Re)start odom_to_tum for this episode
         self._ensure_parent_dir(self.est_out)
+        self._kill_pg(self._odom_proc)  # safety if stale
         odom_cmd = f'{self._odom_to_tum_cmd} --topic {shlex.quote(self.odom_topic)} --out {shlex.quote(self.est_out)}'
         self._odom_proc = self._pg_spawn(shlex.split(odom_cmd), run_dir, name="odom_to_tum")
         self._logger.info("[begin] odom_to_tum pid=%d -> %s", self._odom_proc.pid, self.est_out)
 
-        self._wait_for_rosbridge_port(run_dir)
-        self._rb = RosbridgeClient(self.rosbridge_url, lazy=True)
-
-        # Reset metrics exporter and set safe leaf
+        # 3) Reset metrics + publish safe param
         try:
             self._rb.call_service("/rl_metrics/reset", {})
         except Exception as e:
@@ -152,11 +132,12 @@ class EpisodeOrchestrator:
         except Exception as e:
             self._logger.warning("[begin] publish safe leaf failed: %s", e)
 
+        # 4) Start file player (fresh every episode)
+        self._kill_pg(self._player_proc)  # safety if stale
         player_cmd = f'{self._file_player_cmd} --dir {shlex.quote(seq_dir)} --rate {self.rate_hz} --start-percent {float(start_percent):.3f}'
         self._player_proc = self._pg_spawn(shlex.split(player_cmd), run_dir, name="file_player")
         self._logger.info("[begin] file_player pid=%d", self._player_proc.pid)
 
-        self._stream_run_dir = run_dir
         self._t_stream_start = time.time()
         return {
             "run_dir": run_dir,
@@ -169,9 +150,7 @@ class EpisodeOrchestrator:
         }
 
     def set_leaf(self, leaf_topic: str, leaf: float):
-        """Publish leaf parameter during a running episode."""
         if self._dry_run:
-            # nothing to do
             return
         if self._rb is None:
             self._rb = RosbridgeClient(self.rosbridge_url, lazy=True)
@@ -182,21 +161,14 @@ class EpisodeOrchestrator:
             self._logger.warning("[set_leaf] publish failed: %s", e)
 
     def tick(self, step_len_s: float):
-        """Wall-clock wait for one RL step."""
         t0 = time.time()
         while (time.time() - t0) < step_len_s:
-            # If any child died unexpectedly, break early
-            if not self.is_player_alive():
+            if not self.is_player_alive() or not self.is_ros_ok():
                 break
             time.sleep(0.02)
 
     def commit_metrics(self) -> Dict[str, float]:
-        """
-        Ask the metrics exporter to flush its accumulators and read JSON.
-        Returns {} if not available; DRY_RUN returns synthetic stats.
-        """
         if self._dry_run:
-            # synthetic, slightly varying stats
             rng = random.Random(time.time())
             return {
                 "pts_per_scan_mean": rng.uniform(3e4, 8e4),
@@ -222,7 +194,9 @@ class EpisodeOrchestrator:
                 self._rb = RosbridgeClient(self.rosbridge_url, lazy=True)
             self._rb.call_service("/rl_metrics/commit", {})
         except Exception as e:
+            self._ros_down = True
             self._logger.warning("[metrics] commit failed: %s", e)
+            return {}
 
         try:
             with open(self._metrics_out, "r") as f:
@@ -233,6 +207,26 @@ class EpisodeOrchestrator:
             self._logger.warning("[metrics] read failed (%s): %s", self._metrics_out, e)
             return {}
 
+    # Episode ends: stop only the short-lived actors
+    def end_episode(self):
+        self._kill_pg(self._player_proc)
+        self._player_proc = None
+        self._kill_pg(self._odom_proc)
+        self._odom_proc = None
+        # keep core (roslaunch) running
+
+    # Full shutdown (used by env.close())
+    def close_all(self):
+        self._kill_pg(self._player_proc); self._player_proc = None
+        self._kill_pg(self._odom_proc);   self._odom_proc   = None
+        self._kill_pg(self._ros_proc);    self._ros_proc    = None
+        self._stream_run_dir = None
+        self._t_stream_start = None
+        self._rb = None
+
+    # ------------------------------------------------------------------ #
+    # Status helpers
+    # ------------------------------------------------------------------ #
     def is_ros_ok(self) -> bool:
         if self._dry_run:
             return True
@@ -242,235 +236,17 @@ class EpisodeOrchestrator:
         return (not self._ros_down) and self.is_ros_ok()
 
     def is_player_alive(self) -> bool:
-        """True if the dataset player is still running (or DRY_RUN)."""
         if self._dry_run:
             return True
         if not self.is_ros_ok():
             return False
         if self._player_proc is None:
             return False
-        if self._player_proc.poll() is not None:
-            return False
-        return True
+        return self._player_proc.poll() is None
 
-    def end_episode(self):
-        """Teardown all children."""
-        self._teardown_all()
-        self._stream_run_dir = None
-        self._t_stream_start = None
-        self._rb = None
-
-    # ------------------------------
-    # Legacy probe/run_window APIs (unchanged)
-    # ------------------------------
-    def probe(self, seq_name: str, start_percent: float, duration_s: float, safe_leaf: float,
-              topics: Dict[str, str], timeout_s: Optional[float] = None) -> Dict[str, float]:
-        if timeout_s is None:
-            timeout_s = duration_s + 5.0
-
-        seq_dir = os.path.join(self.seq_root, seq_name)
-        run_dir = self._new_run_dir(tag="probe")
-        out_json = self._metrics_out  # use common path
-
-        if self._dry_run:
-            return self._synthetic_probe(duration_s)
-
-        t0 = time.time()
-        try:
-            self._ros_proc = self._pg_spawn(cmd=self.roslaunch_cmd, cwd=run_dir, name="roslaunch")
-            time.sleep(1.0)
-            rb = RosbridgeClient(self.rosbridge_url, lazy=True)
-            try:
-                rb.call_service("/rl_metrics/reset", {})
-            except Exception as e:
-                print(f"[WARN] reset service failed: {e}")
-            try:
-                rb.publish_float(topics["leaf"], float(safe_leaf))
-            except Exception as e:
-                print(f"[WARN] publish safe leaf failed: {e}")
-
-            player_cmd = f'{self._file_player_cmd} --dir {shlex.quote(seq_dir)} --rate {self.rate_hz} --start-percent {float(start_percent):.3f}'
-            self._player_proc = self._pg_spawn(shlex.split(player_cmd), cwd=run_dir, name="file_player")
-
-            t1 = time.time()
-            while (time.time() - t1) < duration_s:
-                if (time.time() - t0) > timeout_s:
-                    raise TimeoutError("probe timed out")
-                time.sleep(0.05)
-
-            try:
-                rb.call_service("/rl_metrics/commit", {})
-            except Exception as e:
-                print(f"[WARN] commit service failed: {e}")
-
-            stats = {}
-            try:
-                with open(out_json, "r") as f:
-                    stats = json.load(f)
-            except Exception as e:
-                print(f"[WARN] failed to read probe JSON {out_json}: {e}")
-            return stats
-        finally:
-            self._teardown_all()
-
-    def run_window(
-            self,
-            seq_name: str,
-            start_percent: float,
-            warmup_s: float,
-            score_s: float,
-            timeout_s: Optional[float] = None,
-            before_play_fn: Optional[Callable] = None,
-    ) -> Dict[str, object]:
-        # ... (UNCHANGED FROM YOUR VERSION) ...
-        steps = 20000
-        if timeout_s is None:
-            timeout_s = warmup_s + score_s + 10.0
-        seq_dir = os.path.join(self.seq_root, seq_name)
-        if self._dry_run:
-            run_dir = self._new_run_dir(tag="dryrun")
-            self._attach_file_logger(run_dir)
-            self._logger.info("[run] DRY_RUN=1 seq=%s start=%.3f warmup=%.2f score=%.2f steps=%d",
-                              seq_name, start_percent, warmup_s, score_s, steps)
-            self._ensure_parent_dir(self.est_out)
-            self._write_synthetic_tum(self.est_out, n=int(score_s * self.rate_hz))
-            return {
-                "est_tum": self.est_out,
-                "runtime_s": float(warmup_s + score_s),
-                "timeout": False,
-                "diverged": False,
-                "run_dir": run_dir,
-                "pids": {},
-                "exit_codes": {},
-            }
-        run_dir = self._new_run_dir(tag="run")
-        self._attach_file_logger(run_dir)
-        self._logger.info("[run] run_dir=%s seq=%s start=%.3f warmup=%.2f score=%.2f steps=%d timeout_s=%.2f",
-                          run_dir, seq_name, start_percent, warmup_s, score_s, steps, timeout_s)
-        self._log_system_context()
-        t0 = time.time()
-        timeout = False
-        pids = {}
-        exit_codes = {}
-        try:
-            self._preflight_checks()
-            self._ros_proc = self._pg_spawn(self.roslaunch_cmd, run_dir, name="roslaunch")
-            pids["roslaunch"] = self._ros_proc.pid
-            self._logger.info("[run] roslaunch pid=%d", self._ros_proc.pid)
-            self._ensure_parent_dir(self.est_out)
-            odom_cmd = f'{self._odom_to_tum_cmd} --topic {shlex.quote(self.odom_topic)} --out {shlex.quote(self.est_out)}'
-            self._odom_proc = self._pg_spawn(shlex.split(odom_cmd), run_dir, name="odom_to_tum")
-            pids["odom_to_tum"] = self._odom_proc.pid
-            self._logger.info("[run] odom_to_tum pid=%d -> %s", self._odom_proc.pid, self.est_out)
-            self._wait_for_rosbridge_port(run_dir)
-            if before_play_fn is not None:
-                try:
-                    self._logger.info("[run] before_play_fn() starting…")
-                    before_play_fn()
-                    self._logger.info("[run] before_play_fn() done")
-                except Exception as e:
-                    self._logger.warning("[run] before_play_fn raised: %s", e, exc_info=True)
-            player_cmd = f'{self._file_player_cmd} --dir {shlex.quote(seq_dir)} --rate {self.rate_hz} --start-percent {float(start_percent):.3f}'
-            self._player_proc = self._pg_spawn(shlex.split(player_cmd), run_dir, name="file_player")
-            pids["file_player"] = self._player_proc.pid
-            self._logger.info("[run] file_player pid=%d", self._player_proc.pid)
-            target = warmup_s + score_s
-            t0 = time.time()
-            while (time.time() - t0) < target:
-                time.sleep(0.05)
-            self._teardown_all()
-            runtime = time.time() - t0
-            return {"est_tum": self.est_out, "runtime_s": float(runtime), "timeout": False, "diverged": False}
-        except TimeoutError:
-            timeout = True
-            self._logger.error("[run] TIMEOUT after %.2fs waiting for file_player to finish", timeout_s)
-            self._tail_child_logs(run_dir)
-        except Exception as e:
-            self._logger.exception("[run] FAILED: %s", e)
-            self._tail_child_logs(run_dir)
-            raise
-        finally:
-            for name, proc in (("file_player", self._player_proc),
-                               ("odom_to_tum", self._odom_proc),
-                               ("roslaunch", self._ros_proc)):
-                if proc is not None:
-                    exit_codes[name] = proc.poll()
-            self._teardown_all()
-        runtime = time.time() - t0
-        self._logger.info("[run] finished in %.2fs timeout=%s", runtime, timeout)
-        self._logger.info("[run] exit_codes=%s", exit_codes)
-        return {
-            "est_tum": self.est_out,
-            "runtime_s": float(runtime),
-            "timeout": bool(timeout),
-            "diverged": False,
-            "run_dir": run_dir,
-            "pids": pids,
-            "exit_codes": exit_codes,
-        }
-
-    # ------------------------------
-    # Internals / helpers (UNCHANGED below)
-    # ------------------------------
-    def _compute_probe_stats_from_tum(self, tum_path: str) -> dict:
-        # (unchanged)
-        if not os.path.exists(tum_path):
-            return {
-                "num_samples": 0,
-                "odom_rate_hz": 0.0,
-                "span_s": 0.0,
-                "dropout_events": 0,
-                "median_dt": None,
-                "first_ts": None,
-                "last_ts": None,
-                "bytes": 0,
-            }
-        ts = []
-        bytesz = os.path.getsize(tum_path)
-        try:
-            with open(tum_path, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    parts = line.split()
-                    try:
-                        ts.append(float(parts[0]))
-                    except Exception:
-                        continue
-        except Exception as e:
-            logging.warning(f"[probe] failed reading {tum_path}: {e}")
-            ts = []
-        n = len(ts)
-        if n < 2:
-            return {
-                "num_samples": n,
-                "odom_rate_hz": 0.0,
-                "span_s": 0.0,
-                "dropout_events": 0,
-                "median_dt": None,
-                "first_ts": ts[0] if n == 1 else None,
-                "last_ts": ts[0] if n == 1 else None,
-                "bytes": bytesz,
-            }
-        dts = [ts[i+1] - ts[i] for i in range(n-1) if ts[i+1] >= ts[i]]
-        dts = [dt for dt in dts if dt > 1e-6]
-        dts_sorted = sorted(dts)
-        median_dt = dts_sorted[len(dts_sorted)//2] if dts_sorted else 0.0
-        odom_rate_hz = (1.0 / median_dt) if median_dt > 0 else 0.0
-        dropout_threshold = 0.25
-        dropout_events = sum(1 for dt in dts if dt > dropout_threshold)
-        return {
-            "num_samples": n,
-            "odom_rate_hz": odom_rate_hz,
-            "span_s": (ts[-1] - ts[0]) if ts[-1] >= ts[0] else 0.0,
-            "dropout_events": dropout_events,
-            "median_dt": median_dt,
-            "first_ts": ts[0],
-            "last_ts": ts[-1],
-            "bytes": bytesz,
-        }
-
+    # ------------------------------------------------------------------ #
+    # Internals
+    # ------------------------------------------------------------------ #
     def _new_run_dir(self, tag: str) -> str:
         rid = f"{tag}-{uuid.uuid4().hex[:8]}"
         d = os.path.join(self.run_root, rid)
@@ -555,7 +331,7 @@ class EpisodeOrchestrator:
                 time.sleep(0.25)
         raise RuntimeError(f"Timeout waiting for {host}:{port} ({last_err})")
 
-    def kill_pg(self, proc: Optional[subprocess.Popen], sig=signal.SIGTERM, wait_s: float = 3.0):
+    def _kill_pg(self, proc: Optional[subprocess.Popen], sig=signal.SIGTERM, wait_s: float = 3.0):
         if proc is None:
             return
         try:
@@ -574,14 +350,6 @@ class EpisodeOrchestrator:
                 proc.wait(timeout=1.0)
             except Exception:
                 pass
-
-    def _teardown_all(self):
-        self.kill_pg(self._player_proc)
-        self._player_proc = None
-        self.kill_pg(self._odom_proc)
-        self._odom_proc = None
-        self.kill_pg(self._ros_proc)
-        self._ros_proc = None
 
     @staticmethod
     def _ensure_parent_dir(path: str):
@@ -626,10 +394,11 @@ class EpisodeOrchestrator:
             if " " in x:
                 return shutil.which(x.split()[0])
             return shutil.which(x)
-
         checks = {
             "roslaunch": _which(self.roslaunch_cmd[0]),
-            "odom_to_tum": shutil.which(self._odom_to_tum_cmd.split()[0]) if " " in self._odom_to_tum_cmd else (self._odom_to_tum_cmd if os.path.exists(self._odom_to_tum_cmd) else shutil.which(self._odom_to_tum_cmd)),
+            "odom_to_tum": shutil.which(self._odom_to_tum_cmd.split()[0]) if " " in self._odom_to_tum_cmd
+            else (self._odom_to_tum_cmd if os.path.exists(self._odom_to_tum_cmd)
+                  else shutil.which(self._odom_to_tum_cmd)),
             "rosrun": shutil.which("rosrun"),
             "file_player": _which(self._file_player_cmd),
         }
@@ -648,22 +417,3 @@ class EpisodeOrchestrator:
             "ROS_PACKAGE_PATH": os.environ.get("ROS_PACKAGE_PATH", ""),
         }
         self._logger.debug("[ctx] %s", json.dumps(ctx, indent=2))
-
-    def _tail_child_logs(self, run_dir: str):
-        names = ["roslaunch.log", "odom_to_tum.log", "file_player.log"]
-        for n in names:
-            p = os.path.join(run_dir, n)
-            if not os.path.exists(p):
-                continue
-            try:
-                with open(p, "rb") as f:
-                    lines = f.readlines()[-self.tail_lines_on_fail:]
-                self._logger.error("----- tail %s (last %d lines) -----", n, self.tail_lines_on_fail)
-                for b in lines:
-                    try:
-                        s = b.decode("utf-8", errors="replace").rstrip("\n")
-                        print(s)
-                    except Exception:
-                        pass
-            except Exception as e:
-                self._logger.warning("[tail] could not read %s: %s", n, e)
