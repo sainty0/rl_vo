@@ -14,7 +14,7 @@ from env.episode_orchestrator import EpisodeOrchestrator
 from env.rosbridge_client import RosbridgeClient, MockRosbridge
 from env.utils.ape import ape_rmse
 
-LEAF_MIN = 0.05
+LEAF_MIN = 0.0005
 LEAF_MAX = 1.00
 
 def action_to_leaf(a: float) -> float:
@@ -272,7 +272,7 @@ class RLBatchedEnv(VecEnv):
                 ape = float(ape_rmse(est_path, gt_path, score_last_seconds=self.score_win_s))
                 runtime_pen = 0.001 * float(runtime)
                 delta_pen = 0.01 * abs(a - float(self._last_action or 0.0))
-                print(f"[DEBUG] ape: {ape}, runtime: {runtime_pen}, delta: {delta_pen}")
+                # print(f"[DEBUG] ape: {ape}, runtime: {runtime_pen}, delta: {delta_pen}")
                 reward = 0.1 * (-float(ape)) - runtime_pen - delta_pen
                 valid_mask[:] = True
             else:
